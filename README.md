@@ -4,7 +4,7 @@ Vue 3 + Vite movie catalog with search, genre/rating filters, sorting, details, 
 
 ## Node.js / Render streaming
 
-Follow [DEPLOY_RENDER.md](DEPLOY_RENDER.md) to deploy the website and backend together on Render, or connect the GitHub Pages frontend to your Render backend. The included `render.yaml` supplies the build/start commands and generates a private streaming key. Expand Player settings to choose Node.js streaming server or browser WebTorrent.
+Follow [DEPLOY_RENDER.md](DEPLOY_RENDER.md) to deploy the website and backend together on Render, or connect the GitHub Pages frontend to your Render backend. The included `render.yaml` supplies the build/start commands. Node streaming is the default player, with the Render server URL configured automatically and no player-settings form. Public playback is enabled by default.
 
 ## Run step by step
 
@@ -32,7 +32,7 @@ Browser WebTorrent needs WebRTC peers and browser-supported codecs. Ordinary des
 
 Upcoming releases are not implemented: the selected API is a torrent catalog and no verified upcoming-release feed has been supplied. A separate metadata provider can be added later.
 
-Watchlist data stays in this browser's local storage. Movie details are cached in session storage for refresh; uncached numeric movie links request details from the API. Local video files stay on your device and must be selected again after refresh. The Node backend authenticates session creation with a private key; temporary session IDs grant access to their own video/status routes. Reloading clears active playback; leave the movie page to stop torrent transfers. Use media you have permission to access.
+Watchlist data stays in this browser's local storage. Movie details are cached in session storage for refresh; uncached numeric movie links request details from the API. Local video files stay on your device and must be selected again after refresh. The Node backend enables public playback by default; temporary session IDs grant access to their own video/status routes. Set PUBLIC_PLAYBACK=false to require an API key again. Reloading clears active playback; leave the movie page to stop torrent transfers. Use media you have permission to access.
 
 ## Verification
 

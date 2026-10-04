@@ -7,7 +7,7 @@ import { authorized, parseRange, readJson, identifier } from './http.js'
 
 const types = { '.html':'text/html; charset=utf-8', '.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.json':'application/json', '.mp4':'video/mp4', '.m4v':'video/mp4', '.webm':'video/webm' }
 
-export function createStreamingServer({ client, apiKey, downloadPath, staticPath = resolve('dist'), allowedOrigins = [], maxBytes = 4 * 1024 ** 3, idleMs = 5 * 60 * 1000 }) {
+export function createStreamingServer({ client, apiKey, publicPlayback = false, downloadPath, staticPath = resolve('dist'), allowedOrigins = [], maxBytes = 4 * 1024 ** 3, idleMs = 5 * 60 * 1000 }) {
   const sessions = new Map()
   const hashSessions = new Map()
   function json(res, code, data) { res.writeHead(code, { 'Content-Type':'application/json', 'Cache-Control':'no-store' }); res.end(JSON.stringify(data)) }
@@ -37,7 +37,7 @@ export function createStreamingServer({ client, apiKey, downloadPath, staticPath
     try {
       if (path === '/health' && req.method === 'GET') return json(res,200,{ok:true})
       if (path === '/api/play' && req.method === 'POST') {
-        if (!authorized(req.headers.authorization,apiKey)) return json(res,401,{error:'Enter the streaming key from your Render environment settings.'})
+        if (!publicPlayback && !authorized(req.headers.authorization,apiKey)) return json(res,401,{error:'This server requires authenticated playback.'})
         let body
         try { body=await readJson(req) } catch { return json(res,400,{error:'Invalid JSON request.'}) }
         const hash=String(body?.hash||'').trim().toLowerCase()

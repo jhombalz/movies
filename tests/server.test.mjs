@@ -56,3 +56,18 @@ test('HTTP API authenticates playback, streams byte ranges, and releases session
   assert.equal(adds,1);assert.equal(removes,1)
  }finally{await new Promise(resolve=>server.close(resolve))}
 })
+
+test('public playback creates a session without a key and still validates hashes',async()=>{
+ const client={add(){const torrent=new EventEmitter();torrent.destroyed=false;return torrent},remove(torrent){torrent.destroyed=true;return Promise.resolve()}}
+ const server=createStreamingServer({client,publicPlayback:true,downloadPath:'unused'})
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ const base=`http://127.0.0.1:${server.address().port}`
+ try{
+  const play=hash=>fetch(base+'/api/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash})})
+  assert.equal((await play('invalid')).status,400)
+  const response=await play('c'.repeat(40));assert.equal(response.status,201)
+  const {id}=await response.json();assert.match(id,/^[a-f0-9]{48}$/)
+  assert.equal((await play('d'.repeat(40))).status,409)
+  await fetch(base+`/api/sessions/${id}`,{method:'DELETE'})
+ }finally{await new Promise(resolve=>server.close(resolve))}
+})

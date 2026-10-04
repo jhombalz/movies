@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { loadWebTorrent, registerPlayerWorker } from './player.js'
 import { streamingBase, serverRequest, releaseSession } from './backend.js'
+import MovieComments from './MovieComments.vue'
 const samples = [
  {id:'sintel',title:'Sintel',year:2010,rating:7.4,runtime:15,genres:['Animation','Fantasy'],summary:'A young traveler searches for the dragon she befriended in this beautifully crafted open movie from the Blender Foundation.',background_image:'https://media.xiph.org/sintel/sintel-2048-surround.png',stream:'https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4',demo:true,torrents:[{quality:'Original',url:'https://webtorrent.io/torrents/sintel.torrent'}]},
  {id:'bbb',title:'Big Buck Bunny',year:2008,rating:6.5,runtime:10,genres:['Animation','Comedy'],summary:'A gentle giant finds his peaceful afternoon interrupted by three mischievous woodland creatures. An open movie by the Blender Foundation.',stream:'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',demo:true,torrents:[]},
@@ -24,6 +25,7 @@ const featuredMovies=computed(()=>(movies.value.length?movies.value:samples).sli
 const activeHeroIndex=computed(()=>heroIndex.value%featuredMovies.value.length)
 const hero=computed(()=>featuredMovies.value[activeHeroIndex.value])
 let heroGesture=null
+const heroDragging=ref(false), heroDrag=ref(0)
 function moveHero(direction){heroDirection.value=direction;heroIndex.value=(activeHeroIndex.value+direction+featuredMovies.value.length)%featuredMovies.value.length}
 function selectHero(index){heroDirection.value=index<activeHeroIndex.value?-1:1;heroIndex.value=index}
 function heroArtwork(movie){
@@ -33,12 +35,24 @@ function heroArtwork(movie){
 function startHeroSwipe(event){
  if(event.isPrimary===false||event.button>0||event.target.closest('button,a,input,select'))return
  heroGesture={id:event.pointerId,x:event.clientX,y:event.clientY}
+ heroDragging.value=true;heroDrag.value=0
  event.currentTarget.setPointerCapture?.(event.pointerId)
+}
+function updateHeroSwipe(event){
+ if(!heroGesture||heroGesture.id!==event.pointerId)return
+ const dx=event.clientX-heroGesture.x,dy=event.clientY-heroGesture.y
+ if(Math.abs(dy)>Math.abs(dx)&&Math.abs(dy)>12){cancelHeroSwipe(event);return}
+ heroDrag.value=Math.max(-event.currentTarget.clientWidth*.35,Math.min(event.currentTarget.clientWidth*.35,dx))
+}
+function cancelHeroSwipe(event){
+ if(event&&heroGesture&&heroGesture.id!==event.pointerId)return
+ if(event&&event.currentTarget.hasPointerCapture?.(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)
+ heroGesture=null;heroDragging.value=false;heroDrag.value=0
 }
 function finishHeroSwipe(event){
  if(!heroGesture||heroGesture.id!==event.pointerId)return
  const dx=event.clientX-heroGesture.x,dy=event.clientY-heroGesture.y
- heroGesture=null
+ cancelHeroSwipe(event)
  if(Math.abs(dx)>=50&&Math.abs(dx)>Math.abs(dy)*1.25)moveHero(dx<0?1:-1)
 }
 function safeUrl(value) { try { const u=new URL(value); return ['https:','http:'].includes(u.protocol)?u.href:'' } catch { return '' } }
@@ -178,7 +192,7 @@ onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEve
 <template>
  <header><a class="brand" href="./" aria-label="Frame home"><span class="brand-icon">▥</span> frame<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
  <main v-if="!detailRoute">
- <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" role="region" aria-roledescription="carousel" aria-label="Featured movies" tabindex="0" @keydown.left.prevent="moveHero(-1)" @keydown.right.prevent="moveHero(1)" @pointerdown="startHeroSwipe" @pointerup="finishHeroSwipe" @pointercancel="heroGesture=null" :style="{'--hero-direction':heroDirection}">
+ <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" :class="{'is-dragging':heroDragging}" role="region" aria-roledescription="carousel" aria-label="Featured movies" tabindex="0" @keydown.left.prevent="moveHero(-1)" @keydown.right.prevent="moveHero(1)" @pointerdown="startHeroSwipe" @pointermove="updateHeroSwipe" @pointerup="finishHeroSwipe" @pointercancel="cancelHeroSwipe" @lostpointercapture="cancelHeroSwipe" @dragstart.prevent :style="{'--hero-direction':heroDirection,'--hero-drag':heroDrag+'px'}">
   <Transition name="hero-art"><div :key="hero.id" class="hero-artwork" :style="{backgroundImage:heroArtwork(hero)?`url('${heroArtwork(hero)}')`:undefined}"></div></Transition>
   <div class="hero-shade"></div>
   <div class="hero-copy" aria-live="polite" aria-atomic="true"><Transition name="hero-slide" mode="out-in"><div :key="hero.id" class="hero-content"><p class="eyebrow"><span></span> YOUR NEXT MOVIE NIGHT</p><h1>{{hero.title}}</h1><div class="meta"><span class="rating">★ {{hero.rating}}</span><span>{{hero.year}}</span><span v-if="hero.runtime">{{hero.runtime}} min</span><span class="quality">{{hero.demo?'OPEN MOVIE':'HD'}}</span></div><p class="summary">{{hero.summary||hero.description_full||'Settle in. Your next great story starts here.'}}</p><p class="tags">{{hero.genres?.join(' · ')}}</p><div class="actions"><button class="primary" @click="open(hero)">▶ Explore movie</button><button class="secondary" @click="toggleSave(hero)">{{savedMovie(hero)?'✓ In my list':'＋ My list'}}</button></div></div></Transition></div><div v-if="featuredMovies.length>1" class="hero-controls"><button class="hero-arrow" aria-label="Previous featured movie" @click="moveHero(-1)">←</button><div class="hero-dots"><button v-for="(movie,i) in featuredMovies" :key="movie.id" :class="{active:i===activeHeroIndex}" :aria-label="`Show featured movie ${i+1}: ${movie.title}`" :aria-current="i===activeHeroIndex?'true':undefined" @click="selectHero(i)"></button></div><button class="hero-arrow" aria-label="Next featured movie" @click="moveHero(1)">→</button><span class="hero-position">{{activeHeroIndex+1}} / {{featuredMovies.length}}</span></div><div class="hero-caption">YOUR SEAT. YOUR SCREEN.<br><strong>Stories worth staying in for.</strong></div>
@@ -196,6 +210,6 @@ onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEve
  <p v-if="detailsLoading" class="notice" role="status">Loading movie details…</p>
  <div v-else-if="detailsError" class="notice" role="alert">{{detailsError}} <button @click="route">Try again</button></div>
  <section v-else-if="selected" class="movie-details" aria-labelledby="movie-heading">
- <aside class="detail-poster" v-if="selected.id!=='local'"><img v-if="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :src="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :alt="selected.title" @error="$event.target.style.display='none'"><span>{{selected.title}}</span></aside><div class="detail-content"><p class="eyebrow">{{selected.demo?'OPEN MOVIE COLLECTION':'MOVIE DETAILS'}}</p><h1 id="movie-heading" tabindex="-1">{{selected.title}}</h1><div class="meta"><span v-if="selected.rating" class="rating">★ {{selected.rating}}</span><span>{{selected.year}}</span><span v-if="selected.runtime">{{selected.runtime}} min</span><span>{{selected.genres?.join(' · ')}}</span></div><p class="detail-summary">{{selected.description_full||selected.summary||selected.description_short||'No synopsis available.'}}</p><div v-if="selected.torrents?.length" class="quality-picker"><label for="quality">Quality</label><select id="quality" v-model="quality"><option v-for="(t,i) in selected.torrents" :key="i" :value="i">{{t.quality}} {{t.type}} {{t.size?`· ${t.size}`:''}}</option></select></div><div v-if="selected.id!=='local'" class="actions"><button class="primary" @click="watch()">▶ {{selected.id==='sintel'?'Watch trailer':'Watch now'}}</button><button v-if="selected.demo&&selected.torrents?.length" class="secondary" @click="watch(true)">Stream full movie</button><a v-if="safeUrl(selected.torrents?.[quality]?.url)" class="secondary" :href="safeUrl(selected.torrents[quality].url)" target="_blank" rel="noopener noreferrer">↓ Download torrent</a><button class="secondary" @click="toggleSave(selected)">{{savedMovie(selected)?'✓ Saved':'＋ My list'}}</button></div><div v-if="playing" class="player"><video ref="video" :src="source||undefined" controls playsinline @playing="onPlaying" @error="videoError"></video><p role="status">{{status}}</p><small>{{stats}}</small></div><p v-if="selected.torrents?.length" class="playback-note">Playback needs available torrent seeds and a supported video format. Leaving this page stops the stream.</p></div></section>
+ <aside class="detail-poster" v-if="selected.id!=='local'"><img v-if="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :src="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :alt="selected.title" @error="$event.target.style.display='none'"><span>{{selected.title}}</span></aside><div class="detail-content"><p class="eyebrow">{{selected.demo?'OPEN MOVIE COLLECTION':'MOVIE DETAILS'}}</p><h1 id="movie-heading" tabindex="-1">{{selected.title}}</h1><div class="meta"><span v-if="selected.rating" class="rating">★ {{selected.rating}}</span><span>{{selected.year}}</span><span v-if="selected.runtime">{{selected.runtime}} min</span><span>{{selected.genres?.join(' · ')}}</span></div><p class="detail-summary">{{selected.description_full||selected.summary||selected.description_short||'No synopsis available.'}}</p><div v-if="selected.torrents?.length" class="quality-picker"><label for="quality">Quality</label><select id="quality" v-model="quality"><option v-for="(t,i) in selected.torrents" :key="i" :value="i">{{t.quality}} {{t.type}} {{t.size?`· ${t.size}`:''}}</option></select></div><div v-if="selected.id!=='local'" class="actions"><button class="primary" @click="watch()">▶ {{selected.id==='sintel'?'Watch trailer':'Watch now'}}</button><button v-if="selected.demo&&selected.torrents?.length" class="secondary" @click="watch(true)">Stream full movie</button><a v-if="safeUrl(selected.torrents?.[quality]?.url)" class="secondary" :href="safeUrl(selected.torrents[quality].url)" target="_blank" rel="noopener noreferrer">↓ Download torrent</a><button class="secondary" @click="toggleSave(selected)">{{savedMovie(selected)?'✓ Saved':'＋ My list'}}</button></div><div v-if="playing" class="player"><video ref="video" :src="source||undefined" controls playsinline @playing="onPlaying" @error="videoError"></video><p role="status">{{status}}</p><small>{{stats}}</small></div><p v-if="selected.torrents?.length" class="playback-note">Playback needs available torrent seeds and a supported video format. Leaving this page stops the stream.</p><MovieComments v-if="selected.id!=='local'" :key="selected.id" :movie="selected" /></div></section>
  </main>
 </template>

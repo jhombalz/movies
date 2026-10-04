@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { ref, computed, nextTick } from 'vue'
+import parseTorrent from 'parse-torrent'
 
 const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
@@ -63,4 +64,15 @@ test('magnet preserves metadata and announces to multiple secure browser tracker
  assert.ok(params.getAll('tr').every(tr=>tr.startsWith('wss://')))
  const unsafe=new URL(page.magnet({hash:'b'.repeat(40),url:'javascript:alert(1)'},{title:'Movie'})).searchParams
  assert.equal(unsafe.has('xs'),false)
+})
+
+test('generated magnet is accepted by WebTorrent torrent parser',async()=>{
+ const page=app();const hash='0123456789abcdef0123456789abcdef01234567'
+ const link=page.magnet({hash,url:'https://example.com/movie.torrent'},{title:'Movie & more'})
+ const parsed=await parseTorrent(link)
+ assert.equal(parsed.infoHash,hash)
+ assert.equal(parsed.name,'Movie & more')
+ assert.equal(parsed.announce.length,3)
+ assert.equal(parsed.xs,'https://example.com/movie.torrent')
+ assert.throws(()=>page.magnet({hash:'invalid'},{title:'Bad source'}),/invalid torrent hash/)
 })

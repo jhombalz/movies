@@ -64,7 +64,7 @@ async function route(){
 function stop(){session++;clearTimeout(timer);if(video.value){video.value.pause();video.value.removeAttribute('src');video.value.load()}if(client&&!client.destroyed)client.destroy();client=null;playing.value=false;source.value='';stats.value='';if(localUrl.value){URL.revokeObjectURL(localUrl.value);localUrl.value=''}}
 function close(){detailRequest?.abort();stop();selected.value=null;detailRoute.value=false;detailsError.value='';detailsLoading.value=false;location.hash='';window.scrollTo(0,0)}
 const trackers=['wss://tracker.openwebtorrent.com','wss://tracker.webtorrent.dev','wss://tracker.btorrent.xyz']
-function magnet(t,m){const params=new URLSearchParams({xt:`urn:btih:${t.hash}`,dn:m.title});for(const tracker of trackers)params.append('tr',tracker);const metadata=safeUrl(t.url);if(metadata)params.set('xs',metadata);return `magnet:?${params}`}
+function magnet(t,m){const hash=String(t.hash||'').trim();if(!/^(?:[a-f0-9]{40}|[a-z2-7]{32})$/i.test(hash))throw new Error('This movie source has an invalid torrent hash. Try another quality.');const params=new URLSearchParams({dn:m.title});for(const tracker of trackers)params.append('tr',tracker);const metadata=safeUrl(t.url);if(metadata)params.set('xs',metadata);return `magnet:?xt=urn:btih:${hash}&${params}`}
 async function watch(useTorrent=false){
  stop();const token=session;playing.value=true;status.value='Preparing playback…';await nextTick()
  if(token!==session||!selected.value)return
@@ -75,7 +75,7 @@ async function watch(useTorrent=false){
   if(token!==session)return
   const registration=await registerPlayerWorker()
   if(token!==session)return
-  client=new WebTorrent();client.on('error',e=>{if(token===session)status.value=e.message});client.createServer({controller:registration})
+  client=new WebTorrent();client.on('error',e=>{if(token===session){clearTimeout(timer);stats.value='';status.value=`Playback unavailable: ${e.message}`}});client.createServer({controller:registration})
   status.value='Connecting to movie peers…'
   const activeTorrent=client.add(t.hash?magnet(t,selected.value):safeUrl(t.url),{announce:trackers},torrent=>{
    if(token!==session)return

@@ -8,7 +8,7 @@ const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').m
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
  const context=vm.createContext({ref,computed,nextTick,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}})})
- vm.runInContext(appScript+'\nglobalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop};',context)
+ vm.runInContext(appScript+'\nglobalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet};',context)
  return {context,...context.api}
 }
 
@@ -53,4 +53,14 @@ test('installed browser bundle exports a usable default constructor',async()=>{
  assert.equal(typeof WebTorrent,'function')
  const client=new WebTorrent({dht:false,tracker:false})
  assert.equal(typeof client.add,'function');client.destroy()
+})
+
+test('magnet preserves metadata and announces to multiple secure browser trackers',()=>{
+ const page=app();const params=new URL(page.magnet({hash:'a'.repeat(40),url:'https://example.com/movie.torrent'},{title:'A & B'})).searchParams
+ assert.equal(params.get('xs'),'https://example.com/movie.torrent')
+ assert.equal(params.get('dn'),'A & B')
+ assert.equal(params.getAll('tr').length,3)
+ assert.ok(params.getAll('tr').every(tr=>tr.startsWith('wss://')))
+ const unsafe=new URL(page.magnet({hash:'b'.repeat(40),url:'javascript:alert(1)'},{title:'Movie'})).searchParams
+ assert.equal(unsafe.has('xs'),false)
 })

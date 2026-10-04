@@ -63,7 +63,8 @@ async function route(){
 }
 function stop(){session++;clearTimeout(timer);if(video.value){video.value.pause();video.value.removeAttribute('src');video.value.load()}if(client&&!client.destroyed)client.destroy();client=null;playing.value=false;source.value='';stats.value='';if(localUrl.value){URL.revokeObjectURL(localUrl.value);localUrl.value=''}}
 function close(){detailRequest?.abort();stop();selected.value=null;detailRoute.value=false;detailsError.value='';detailsLoading.value=false;location.hash='';window.scrollTo(0,0)}
-function magnet(t,m){return `magnet:?xt=urn:btih:${t.hash}&dn=${encodeURIComponent(m.title)}&tr=${encodeURIComponent('wss://tracker.openwebtorrent.com')}`}
+const trackers=['wss://tracker.openwebtorrent.com','wss://tracker.webtorrent.dev','wss://tracker.btorrent.xyz']
+function magnet(t,m){const params=new URLSearchParams({xt:`urn:btih:${t.hash}`,dn:m.title});for(const tracker of trackers)params.append('tr',tracker);const metadata=safeUrl(t.url);if(metadata)params.set('xs',metadata);return `magnet:?${params}`}
 async function watch(useTorrent=false){
  stop();const token=session;playing.value=true;status.value='Preparing playback…';await nextTick()
  if(token!==session||!selected.value)return
@@ -76,12 +77,21 @@ async function watch(useTorrent=false){
   if(token!==session)return
   client=new WebTorrent();client.on('error',e=>{if(token===session)status.value=e.message});client.createServer({controller:registration})
   status.value='Connecting to movie peers…'
-  timer=setTimeout(()=>{if(token===session)status.value='No playable stream yet. This torrent needs browser-compatible peers; try downloading the torrent instead.'},30000)
-  client.add(t.hash?magnet(t,selected.value):safeUrl(t.url),torrent=>{
+  const activeTorrent=client.add(t.hash?magnet(t,selected.value):safeUrl(t.url),{announce:trackers},torrent=>{
    if(token!==session)return
    const file=torrent.files.find(f=>/\.(mp4|webm|m4v)$/i.test(f.name));if(!file){status.value='This torrent has no browser-compatible video file.';return}
-   file.streamTo(video.value);status.value='Buffering movie…';torrent.on('download',()=>{stats.value=`${torrent.numPeers} peers · ${Math.round(torrent.downloadSpeed/1024)} KB/s · ${Math.round(torrent.progress*100)}% downloaded`})
+   try{file.streamTo(video.value);status.value='Buffering movie…'}catch(e){status.value=`Playback unavailable: ${e.message}`;return}
+   torrent.on('download',()=>{if(token!==session)return;stats.value=`${torrent.numPeers} peers · ${Math.round(torrent.downloadSpeed/1024)} KB/s · ${Math.round(torrent.progress*100)}% downloaded`})
   })
+  activeTorrent?.on('wire',()=>{if(token===session)stats.value=`${activeTorrent.numPeers} connected peers`})
+  activeTorrent?.on('warning',()=>{if(token===session&&!(activeTorrent.numPeers>0))stats.value='Some connection attempts failed; trying other trackers…'})
+  stats.value='Looking for browser-compatible peers…'
+  timer=setTimeout(()=>{
+   if(token!==session)return
+   if(activeTorrent?.downloaded>0){status.value='Data is arriving, but playback has not started. Press play; if it stays at 0:00, try another quality or download the video.';return}
+   if(activeTorrent?.numPeers>0){status.value='Peers connected, but no video data is arriving yet. You can keep waiting or try another quality.';return}
+   status.value='No browser-compatible peers connected after 30 seconds. Still searching. Try another quality, or download the torrent and play it with a desktop torrent app.'
+  },30000)
  }catch(e){if(token===session)status.value=`Playback unavailable: ${e.message}`}
 }
 function onPlaying(){status.value='Playing';clearTimeout(timer)}

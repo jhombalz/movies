@@ -196,7 +196,7 @@ onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEve
 </script>
 
 <template>
- <header><a class="brand" href="./" aria-label="Frame home"><span class="brand-icon">▥</span> frame<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
+ <header><a class="brand" href="./" aria-label="JhoFlix home"><span class="brand-icon">▥</span> JhoFlix<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
  <main v-if="!detailRoute">
  <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" :class="{'is-dragging':heroDragging}" role="region" aria-roledescription="carousel" aria-label="Featured movies" tabindex="0" @keydown.left.prevent="moveHero(-1)" @keydown.right.prevent="moveHero(1)" @pointerdown="startHeroSwipe" @pointermove="updateHeroSwipe" @pointerup="finishHeroSwipe" @pointercancel="cancelHeroSwipe" @lostpointercapture="cancelHeroSwipe" @dragstart.prevent :style="{'--hero-direction':heroDirection,'--hero-drag':heroDrag+'px'}">
   <Transition name="hero-art"><div :key="hero.id" class="hero-artwork" :style="{backgroundImage:heroArtwork(hero)?`url('${heroArtwork(hero)}')`:undefined}"></div></Transition>
@@ -210,7 +210,7 @@ onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEve
  <div v-if="!visible.length&&!loading" class="empty"><h3>{{tab==='My list'?'Make room for movie night.':'No movies found.'}}</h3><p>{{tab==='My list'?'Save a movie with the + button to find it here.':'Try another title, genre, or rating.'}}</p></div><button v-if="more&&tab!=='My list'" class="secondary load-more" :disabled="loading" @click="page++;load(true)">Load more movies</button>
  </section>
  <section class="personal"><span class="personal-icon">✦</span><div><h3>Movie night, made yours.</h3><p>Save your favorites. Bring your own movies. Press play.</p></div><label class="secondary">Open a local movie<input type="file" accept="video/*" @change="localFile"></label></section>
- </main><footer v-if="!detailRoute"><span class="brand">frame<span class="brand-dot">.</span></span><span>Your personal cinema · Made for quiet nights in</span></footer>
+ </main><footer v-if="!detailRoute"><span class="brand">JhoFlix<span class="brand-dot">.</span></span><span>Your personal cinema · Made for quiet nights in</span></footer>
  <main v-else class="details-page">
  <a class="back-link" href="#" @click.prevent="close">← Back to movies</a>
  <p v-if="detailsLoading" class="notice" role="status">Loading movie details…</p>

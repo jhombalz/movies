@@ -50,3 +50,6 @@ Run npm test for playback, authentication/private mode, public mode, HTTP range/
 - Unsupported video: try another encoding. Codec transcoding is not implemented.
 
 WebTorrent is pinned to 2.8.5. scripts/fix-webtorrent-node.mjs applies an idempotent install-time fix for two Node debug-ID conversions that incorrectly treat text info hashes as binary data. Dependency updates require review of that patch.
+## TMDB movie information and reviews
+
+In Render, open frame-movies > Environment and add TMDB_API_KEY using your TMDB API Key (v3), then save and redeploy. Keep it on the server; do not use a VITE_ variable. The provided key is configured locally in the ignored .env file. Run npm start locally and use the local server origin for the frontend when testing. The server resolves YTS IMDb IDs using TMDB, then returns details, cast, and the first page of reviews. Requests are cached in memory for 30 minutes; no database is required. Existing synopsis and playback stay available if TMDB is unavailable. GitHub Pages requests these details from the Render service.

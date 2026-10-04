@@ -4,11 +4,13 @@ import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { authorized, parseRange, readJson, identifier } from './http.js'
+import { createMovieInfo } from './tmdb.js'
 
 const types = { '.html':'text/html; charset=utf-8', '.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.json':'application/json', '.mp4':'video/mp4', '.m4v':'video/mp4', '.webm':'video/webm' }
 
 export function createStreamingServer({ client, apiKey, publicPlayback = false, downloadPath, staticPath = resolve('dist'), allowedOrigins = [], maxBytes = 4 * 1024 ** 3, idleMs = 5 * 60 * 1000 }) {
   const sessions = new Map()
+  const movieInfo=createMovieInfo()
   const hashSessions = new Map()
   function json(res, code, data) { res.writeHead(code, { 'Content-Type':'application/json', 'Cache-Control':'no-store' }); res.end(JSON.stringify(data)) }
   function remove(id) {
@@ -36,6 +38,10 @@ export function createStreamingServer({ client, apiKey, publicPlayback = false, 
     try { path = decodeURIComponent(new URL(req.url,'http://localhost').pathname) } catch { return json(res,400,{error:'Invalid URL.'}) }
     try {
       if (path === '/health' && req.method === 'GET') return json(res,200,{ok:true})
+      if(path.startsWith('/api/movies/')&&req.method==='GET'){
+        const result=await movieInfo(path.slice('/api/movies/'.length))
+        return json(res,result.code,result.error?{error:result.error}:{movie:result.movie})
+      }
       if (path === '/api/play' && req.method === 'POST') {
         if (!publicPlayback && !authorized(req.headers.authorization,apiKey)) return json(res,401,{error:'This server requires authenticated playback.'})
         let body

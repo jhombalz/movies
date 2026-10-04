@@ -17,13 +17,29 @@ const movieCache=new Map()
 try { const data=JSON.parse(localStorage.getItem('frame-watchlist') || '[]'); saved.value=Array.isArray(data)?data:[] } catch {}
 const genres=['Action','Adventure','Animation','Comedy','Crime','Documentary','Drama','Fantasy','Horror','Mystery','Romance','Sci-Fi','Thriller']
 const visible=computed(()=> (tab.value==='My list'?saved.value:movies.value).filter(m=>(!query.value||m.title.toLowerCase().includes(query.value.toLowerCase()))&&(!genre.value||m.genres?.includes(genre.value))&&(!rating.value||m.rating>=Number(rating.value))))
-const hero=computed(()=>movies.value[0] || samples[0])
+const heroIndex=ref(0)
+const featuredMovies=computed(()=>(movies.value.length?movies.value:samples).slice(0,5))
+const activeHeroIndex=computed(()=>heroIndex.value%featuredMovies.value.length)
+const hero=computed(()=>featuredMovies.value[activeHeroIndex.value])
+let heroGesture=null
+function moveHero(direction){heroIndex.value=(activeHeroIndex.value+direction+featuredMovies.value.length)%featuredMovies.value.length}
+function startHeroSwipe(event){
+ if(event.isPrimary===false||event.button>0||event.target.closest('button,a,input,select'))return
+ heroGesture={id:event.pointerId,x:event.clientX,y:event.clientY}
+ event.currentTarget.setPointerCapture?.(event.pointerId)
+}
+function finishHeroSwipe(event){
+ if(!heroGesture||heroGesture.id!==event.pointerId)return
+ const dx=event.clientX-heroGesture.x,dy=event.clientY-heroGesture.y
+ heroGesture=null
+ if(Math.abs(dx)>=50&&Math.abs(dx)>Math.abs(dy)*1.25)moveHero(dx<0?1:-1)
+}
 function safeUrl(value) { try { const u=new URL(value); return ['https:','http:'].includes(u.protocol)?u.href:'' } catch { return '' } }
 function savedMovie(m){return saved.value.some(x=>x.id===m.id)}
 function toggleSave(m){saved.value=savedMovie(m)?saved.value.filter(x=>x.id!==m.id):[...saved.value,m];try{localStorage.setItem('frame-watchlist',JSON.stringify(saved.value))}catch{notice.value='Your browser could not save the watchlist.'}}
 async function load(append=false){
  request?.abort();request=new AbortController();const current=request;loading.value=true;notice.value=''
- if(!append)page.value=1
+ if(!append){page.value=1;heroIndex.value=0}
  try{
   const params=new URLSearchParams({limit:24,page:page.value,sort_by:sort.value,order_by:'desc',query_term:query.value,genre:genre.value,minimum_rating:rating.value||'0'})
   const response=await fetch(`https://yts.gg/api/v2/list_movies.json?${params}`,{signal:AbortSignal.any([current.signal,AbortSignal.timeout(12000)])})
@@ -138,8 +154,8 @@ onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEve
 <template>
  <header><a class="brand" href="./" aria-label="Frame home"><span class="brand-icon">▥</span> frame<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
  <main v-if="!detailRoute">
- <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" :style="hero.background_image?{backgroundImage:`linear-gradient(90deg,#101114 5%,#10111499 55%,#10111444),linear-gradient(0deg,#101114,transparent 60%),url('${safeUrl(hero.background_image)}')`}:{}">
-  <div class="hero-content"><p class="eyebrow"><span></span> YOUR NEXT MOVIE NIGHT</p><h1>{{hero.title}}</h1><div class="meta"><span class="rating">★ {{hero.rating}}</span><span>{{hero.year}}</span><span v-if="hero.runtime">{{hero.runtime}} min</span><span class="quality">{{hero.demo?'OPEN MOVIE':'HD'}}</span></div><p class="summary">{{hero.summary||hero.description_full||'Settle in. Your next great story starts here.'}}</p><p class="tags">{{hero.genres?.join(' · ')}}</p><div class="actions"><button class="primary" @click="open(hero)">▶ Explore movie</button><button class="secondary" @click="toggleSave(hero)">{{savedMovie(hero)?'✓ In my list':'＋ My list'}}</button></div></div><div class="hero-caption">YOUR SEAT. YOUR SCREEN.<br><strong>Stories worth staying in for.</strong></div>
+ <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" role="region" aria-roledescription="carousel" aria-label="Featured movies" tabindex="0" @keydown.left.prevent="moveHero(-1)" @keydown.right.prevent="moveHero(1)" @pointerdown="startHeroSwipe" @pointerup="finishHeroSwipe" @pointercancel="heroGesture=null" :style="hero.background_image?{backgroundImage:`linear-gradient(90deg,#101114 5%,#10111499 55%,#10111444),linear-gradient(0deg,#101114,transparent 60%),url('${safeUrl(hero.background_image)}')`}:{}">
+  <div class="hero-content" aria-live="polite" aria-atomic="true"><p class="eyebrow"><span></span> YOUR NEXT MOVIE NIGHT</p><h1>{{hero.title}}</h1><div class="meta"><span class="rating">★ {{hero.rating}}</span><span>{{hero.year}}</span><span v-if="hero.runtime">{{hero.runtime}} min</span><span class="quality">{{hero.demo?'OPEN MOVIE':'HD'}}</span></div><p class="summary">{{hero.summary||hero.description_full||'Settle in. Your next great story starts here.'}}</p><p class="tags">{{hero.genres?.join(' · ')}}</p><div class="actions"><button class="primary" @click="open(hero)">▶ Explore movie</button><button class="secondary" @click="toggleSave(hero)">{{savedMovie(hero)?'✓ In my list':'＋ My list'}}</button></div></div><div v-if="featuredMovies.length>1" class="hero-controls"><button class="hero-arrow" aria-label="Previous featured movie" @click="moveHero(-1)">←</button><div class="hero-dots"><button v-for="(movie,i) in featuredMovies" :key="movie.id" :class="{active:i===activeHeroIndex}" :aria-label="`Show featured movie ${i+1}: ${movie.title}`" :aria-current="i===activeHeroIndex?'true':undefined" @click="heroIndex=i"></button></div><button class="hero-arrow" aria-label="Next featured movie" @click="moveHero(1)">→</button><span class="hero-position">{{activeHeroIndex+1}} / {{featuredMovies.length}}</span></div><div class="hero-caption">YOUR SEAT. YOUR SCREEN.<br><strong>Stories worth staying in for.</strong></div>
  </section>
  <section class="library"><div class="section-heading"><div><p class="eyebrow">THE GOOD STUFF, ALL IN ONE PLACE</p><h2>{{tab==='My list'?'Your watchlist':tab==='Top rated'?'Audience favorites':'Find your next favorite'}}<span class="count">{{visible.length}}</span></h2></div><span class="subtle">A little escape, whenever you need it.</span></div>
  <form class="filters" @submit.prevent="load()"><label class="search"><span>⌕</span><input v-model="query" placeholder="Search movies…" aria-label="Search movies by title"><button type="submit" aria-label="Search">→</button></label><select v-model="genre" aria-label="Genre" @change="load()"><option value="">All genres</option><option v-for="g in genres" :key="g">{{g}}</option></select><select v-model="rating" aria-label="Minimum rating" @change="load()"><option value="">Any rating</option><option value="7">7+ rated</option><option value="8">8+ rated</option><option value="9">9+ rated</option></select><select v-model="sort" aria-label="Sort movies" @change="load()"><option value="date_added">Recently added</option><option value="year">Latest releases</option><option value="rating">Highest rated</option><option value="download_count">Popular</option></select></form>

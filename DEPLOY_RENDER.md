@@ -12,7 +12,7 @@ The Node service serves both the built Vue website and torrent video streams. Gi
 6. In the website, expand **Player settings**, select **Node.js streaming server**, and enter that key. The server URL is filled automatically on an `onrender.com` host.
 7. Open a movie, choose a quality, and press **Watch now**. Once the server stream is ready, press play in the video controls.
 
-Do not put the private key in GitHub, a `VITE_` environment variable, the URL, or a chat message. The website keeps the key only in memory for the current tab.
+Do not put the private key in GitHub, a `VITE_` environment variable, the URL, or a chat message. The website keeps it in memory unless you enable **Remember key on this device**. That option saves it in this browser's local storage for the configured server; uncheck it to remove the saved key. Use it only on a device/browser you trust.
 
 ## Option 2: Manual Web Service
 
@@ -40,7 +40,7 @@ Open `https://jhombalz.github.io/movies/`, expand **Player settings**, and set:
 - Streaming server URL: your service's `https://...onrender.com` URL.
 - Private streaming key: the same `STREAM_API_KEY` set in Render.
 
-The frontend remembers the server URL and player selection, but not the key. Browser WebTorrent remains available in the player dropdown.
+The frontend remembers the server URL and player selection. Enable **Remember key on this device** to remember the key as well. Changing the server URL clears the key to prevent sending a saved credential to another server. Browser WebTorrent remains available in the player dropdown.
 
 ## Local backend
 

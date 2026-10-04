@@ -4,12 +4,13 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { ref, computed, nextTick } from 'vue'
 import parseTorrent from 'parse-torrent'
+import { streamingBase } from '../src/backend.js'
 
 const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
- const context=vm.createContext({ref,computed,nextTick,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}})})
- vm.runInContext(appScript+'\nglobalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet};',context)
+ const context=vm.createContext({ref,computed,nextTick,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
+ vm.runInContext(appScript+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,backendKey,source};',context)
  return {context,...context.api}
 }
 
@@ -91,4 +92,20 @@ test('player waits for service worker control, even after activation',async()=>{
  assert.equal(events.has('controllerchange'),true)
  container.controller=worker;events.get('controllerchange')();await pending
  assert.equal(done,true);assert.equal(events.has('controllerchange'),false)
+})
+
+test('server player sends hash, uses a session video URL, and releases on navigation',async()=>{
+ const id='a'.repeat(48);let released=false
+ const page=app({serverRequest:async(base,path,options)=>{assert.equal(base,'https://example.onrender.com');if(path==='/api/play'){assert.equal(options.key,'private');assert.equal(options.body.hash,'b'.repeat(40));return{id}}return{ready:true,peers:3,speed:1024,progress:.2}},releaseSession:async session=>{assert.equal(session.id,id);released=true}})
+ page.playbackMode.value='server';page.backendUrl.value='https://example.onrender.com/';page.backendKey.value='private'
+ page.open({id:3,title:'Server movie',torrents:[{hash:'b'.repeat(40)}]});await page.watch()
+ assert.equal(page.source.value,`https://example.onrender.com/api/sessions/${id}/video`)
+ assert.ok(!page.source.value.includes('private'))
+ page.close();assert.equal(released,true)
+})
+
+test('server player explains missing settings instead of loading browser WebTorrent',async()=>{
+ const page=app({loadWebTorrent:()=>{throw new Error('Browser player must not run')}})
+ page.playbackMode.value='server';page.open({id:4,title:'No server',torrents:[{hash:'c'.repeat(40)}]});await page.watch()
+ assert.match(page.status.value,/Enter your Render server URL/);page.close()
 })

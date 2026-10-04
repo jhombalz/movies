@@ -1,6 +1,10 @@
 # Frame — Personal movie website
 
-Vue 3 + Vite movie catalog with search, genre/rating filters, sorting, details, quality selection, torrent downloads, WebTorrent playback, a persistent local watchlist, and local video playback. Responsive dark cinema design.
+Vue 3 + Vite movie catalog with search, genre/rating filters, sorting, details, quality selection, torrent downloads, Node.js HTTP streaming, browser WebTorrent, a persistent local watchlist, and local video playback. Responsive dark cinema design.
+
+## Node.js / Render streaming
+
+Follow [DEPLOY_RENDER.md](DEPLOY_RENDER.md) to deploy the website and backend together on Render, or connect the GitHub Pages frontend to your Render backend. The included `render.yaml` supplies the build/start commands and generates a private streaming key. Expand Player settings to choose Node.js streaming server or browser WebTorrent.
 
 ## Run step by step
 
@@ -28,12 +32,12 @@ Browser WebTorrent needs WebRTC peers and browser-supported codecs. Ordinary des
 
 Upcoming releases are not implemented: the selected API is a torrent catalog and no verified upcoming-release feed has been supplied. A separate metadata provider can be added later.
 
-Watchlist data stays in this browser's local storage. Movie details are cached in session storage for refresh; uncached numeric movie links request details from the API. Local video files stay on your device and must be selected again after refresh. No login, backend, or public hosting is configured. Reloading clears active playback; leave the movie page to stop torrent transfers. Use media you have permission to access.
+Watchlist data stays in this browser's local storage. Movie details are cached in session storage for refresh; uncached numeric movie links request details from the API. Local video files stay on your device and must be selected again after refresh. The Node backend authenticates session creation with a private key; temporary session IDs grant access to their own video/status routes. Reloading clears active playback; leave the movie page to stop torrent transfers. Use media you have permission to access.
 
 ## Verification
 
-Production build passes. The local development server, Vue component, and service worker respond with HTTP 200. Live YTS browsing and end-to-end browser/torrent playback have not been verified in this environment.
+Both Render-root and GitHub Pages production builds pass. Browser playback of the full Sintel torrent was verified on GitHub Pages. Node streaming of real Sintel MP4 header and end-of-file ranges was verified locally. Render playback has not yet been tested because the service must be deployed in your account.
 
-Run `node --test tests/details-player.test.mjs` for regression checks covering page navigation, refresh, direct links, error handling, player construction, and cancellation when leaving a page.
+Run `npm test` for regression checks covering navigation, refresh, direct links, browser/player errors, Node streaming authentication, seeking/ranges, session cleanup, and server playback integration.
 
-Dependency audit reports four high-severity findings in the WebTorrent dependency chain, originating from the `ip` package's SSRF address classification issue (GHSA-2p57-rm9w-gvfp). npm proposes an obsolete WebTorrent downgrade rather than a compatible fix. This app uses WebTorrent's packaged browser bundle and has no torrent server backend; review the upstream dependency issue before extending it with server-side torrent processing.
+Dependency audit reports four high-severity findings in the WebTorrent dependency chain, originating from the `ip` package's SSRF address classification issue (GHSA-2p57-rm9w-gvfp). npm proposes an obsolete WebTorrent downgrade rather than a compatible fix. The installed tracker dependency imports `ip` in its UDP tracker-server parser; this app runs a torrent client and does not start a tracker server. The audit findings remain unresolved upstream. Session creation accepts only validated info hashes and uses fixed tracker/source addresses, not arbitrary user-provided torrent URLs.

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { loadWebTorrent, registerPlayerWorker } from './player.js'
+import { streamingBase, serverRequest, releaseSession } from './backend.js'
 const samples = [
  {id:'sintel',title:'Sintel',year:2010,rating:7.4,runtime:15,genres:['Animation','Fantasy'],summary:'A young traveler searches for the dragon she befriended in this beautifully crafted open movie from the Blender Foundation.',background_image:'https://media.xiph.org/sintel/sintel-2048-surround.png',stream:'https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4',demo:true,torrents:[{quality:'Original',url:'https://webtorrent.io/torrents/sintel.torrent'}]},
  {id:'bbb',title:'Big Buck Bunny',year:2008,rating:6.5,runtime:10,genres:['Animation','Comedy'],summary:'A gentle giant finds his peaceful afternoon interrupted by three mischievous woodland creatures. An open movie by the Blender Foundation.',stream:'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',demo:true,torrents:[]},
@@ -8,6 +9,10 @@ const samples = [
 ]
 const movies=ref(samples), loading=ref(false), notice=ref(''), query=ref(''), genre=ref(''), rating=ref(''), sort=ref('date_added'), tab=ref('Discover'), page=ref(1), more=ref(false), selected=ref(null), quality=ref(0), playing=ref(false), video=ref(null), status=ref(''), source=ref(''), localUrl=ref(''), stats=ref(''), saved=ref([])
 const detailsLoading=ref(false), detailsError=ref(''), detailRoute=ref(false)
+const playbackMode=ref('server'), backendUrl=ref(''), backendKey=ref('')
+try{backendUrl.value=localStorage.getItem('frame-server-url')||(location.hostname?.endsWith('.onrender.com')?location.origin:'');playbackMode.value=localStorage.getItem('frame-player')||'server'}catch{}
+let backendAbort, serverSession, serverPoll, releasePromise=Promise.resolve()
+function savePlayerSettings(){try{localStorage.setItem('frame-server-url',backendUrl.value);localStorage.setItem('frame-player',playbackMode.value)}catch{}}
 let client, timer, request, detailRequest, session=0
 const movieCache=new Map()
 try { const data=JSON.parse(localStorage.getItem('frame-watchlist') || '[]'); saved.value=Array.isArray(data)?data:[] } catch {}
@@ -61,16 +66,47 @@ async function route(){
  }catch(e){if(!current.signal.aborted)detailsError.value=e.message}
  finally{if(current===detailRequest)detailsLoading.value=false}
 }
-function stop(){session++;clearTimeout(timer);if(video.value){video.value.pause();video.value.removeAttribute('src');video.value.load()}if(client&&!client.destroyed)client.destroy();client=null;playing.value=false;source.value='';stats.value='';if(localUrl.value){URL.revokeObjectURL(localUrl.value);localUrl.value=''}}
+function stop(){session++;clearTimeout(timer);clearTimeout(serverPoll);backendAbort?.abort();if(serverSession){releasePromise=releaseSession(serverSession);serverSession=null}if(video.value){video.value.pause();video.value.removeAttribute('src');video.value.load()}if(client&&!client.destroyed)client.destroy();client=null;playing.value=false;source.value='';stats.value='';if(localUrl.value){URL.revokeObjectURL(localUrl.value);localUrl.value=''}}
 function close(){detailRequest?.abort();stop();selected.value=null;detailRoute.value=false;detailsError.value='';detailsLoading.value=false;location.hash='';window.scrollTo(0,0)}
 const trackers=['wss://tracker.openwebtorrent.com','wss://tracker.webtorrent.dev','wss://tracker.btorrent.xyz']
 function magnet(t,m){const hash=String(t.hash||'').trim();if(!/^(?:[a-f0-9]{40}|[a-z2-7]{32})$/i.test(hash))throw new Error('This movie source has an invalid torrent hash. Try another quality.');const params=new URLSearchParams({dn:m.title});for(const tracker of trackers)params.append('tr',tracker);const metadata=safeUrl(t.url);if(metadata)params.set('xs',metadata);return `magnet:?xt=urn:btih:${hash}&${params}`}
+async function watchOnServer(t,token){
+ if(!backendUrl.value.trim())throw new Error('Enter your Render server URL in Player settings above.')
+ if(!backendKey.value.trim())throw new Error('Enter your streaming key in Player settings above.')
+ const base=streamingBase(backendUrl.value.trim())
+ const hash=t.hash||(selected.value.id==='sintel'?'08ada5a7a6183aae1e09d831df6748d566095a10':'')
+ if(!/^[a-f0-9]{40}$/i.test(hash))throw new Error('This source has no valid torrent hash for server playback.')
+ savePlayerSettings();status.value='Connecting to streaming server…'
+ await releasePromise;if(token!==session)return
+ const abort=new AbortController();backendAbort=abort
+ const created=await serverRequest(base,'/api/play',{method:'POST',key:backendKey.value.trim(),body:{hash},signal:AbortSignal.timeout(90000)})
+ if(!/^[a-f0-9]{48}$/.test(created.id))throw new Error('The streaming server returned an invalid playback session.')
+ const current={base,id:created.id}
+ if(token!==session){await releaseSession(current);return}
+ serverSession=current
+ const started=Date.now()
+ async function poll(){
+  if(token!==session)return
+  try{
+   const info=await serverRequest(base,`/api/sessions/${current.id}`,{signal:AbortSignal.any([abort.signal,AbortSignal.timeout(20000)])})
+   if(token!==session)return
+   if(info.error)throw new Error(info.error)
+   stats.value=`${info.peers||0} server peers · ${Math.round((info.speed||0)/1024)} KB/s · ${Math.round((info.progress||0)*100)}% downloaded`
+   if(info.ready&&!source.value){source.value=`${base}/api/sessions/${current.id}/video`;status.value='Server stream ready. Press play in the video controls.'}
+   if(!info.ready)status.value=Date.now()-started>30000?'Waiting for torrent metadata. The server is still looking for peers…':'Server is fetching torrent metadata…'
+   if(!info.ready&&Date.now()-started>90000)throw new Error('No torrent metadata arrived after 90 seconds. Try another quality or source.')
+   serverPoll=setTimeout(poll,2500)
+  }catch(e){if(token!==session)return;status.value=`Server playback unavailable: ${e.message}`;stats.value='';releasePromise=releaseSession(current);serverSession=null}
+ }
+ await poll()
+}
 async function watch(useTorrent=false){
  stop();const token=session;playing.value=true;status.value='Preparing playback…';await nextTick()
  if(token!==session||!selected.value)return
  if(selected.value.stream&&!useTorrent){source.value=selected.value.stream;status.value=selected.value.id==='sintel'?'Sintel trailer':'Ready to play';return}
  const t=selected.value.torrents?.[quality.value];if(!t){status.value='No playable source is available for this movie.';return}
  try{
+  if(playbackMode.value==='server'){await watchOnServer(t,token);return}
   const WebTorrent=await loadWebTorrent()
   if(token!==session)return
   const registration=await registerPlayerWorker()
@@ -95,6 +131,7 @@ async function watch(useTorrent=false){
  }catch(e){if(token===session)status.value=`Playback unavailable: ${e.message}`}
 }
 function onPlaying(){status.value='Playing';clearTimeout(timer)}
+function videoError(){clearTimeout(serverPoll);backendAbort?.abort();if(serverSession){releasePromise=releaseSession(serverSession);serverSession=null}status.value='Your browser could not play this source. Try another quality or a local MP4 file.'}
 function localFile(event){const file=event.target.files[0];if(!file)return;open({id:'local',title:file.name,genres:[],summary:'A movie from your device',torrents:[]});stop();localUrl.value=URL.createObjectURL(file);source.value=localUrl.value;playing.value=true;status.value='Ready to play';event.target.value=''}
 onMounted(()=>{load();route();window.addEventListener('hashchange',route)})
 onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEventListener('hashchange',route)})
@@ -102,6 +139,7 @@ onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEve
 
 <template>
  <header><a class="brand" href="./" aria-label="Frame home"><span class="brand-icon">▥</span> frame<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
+ <details class="player-settings"><summary>Player settings · {{playbackMode==='server'?'Node.js streaming':'Browser torrent'}}</summary><div class="settings-fields"><label>Player<select v-model="playbackMode" @change="stop();savePlayerSettings()"><option value="server">Node.js streaming server</option><option value="webtorrent">WebTorrent in browser</option></select></label><template v-if="playbackMode==='server'"><label>Streaming server URL<input v-model="backendUrl" type="url" placeholder="https://your-service.onrender.com" @change="savePlayerSettings"></label><label>Private streaming key<input v-model="backendKey" type="password" autocomplete="off" placeholder="Your STREAM_API_KEY"></label></template></div><p v-if="playbackMode==='server'">The key stays in this tab. Choose a quality, then press Watch now to connect.</p></details>
  <main v-if="!detailRoute">
  <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" :style="hero.background_image?{backgroundImage:`linear-gradient(90deg,#101114 5%,#10111499 55%,#10111444),linear-gradient(0deg,#101114,transparent 60%),url('${safeUrl(hero.background_image)}')`}:{}">
   <div class="hero-content"><p class="eyebrow"><span></span> YOUR NEXT MOVIE NIGHT</p><h1>{{hero.title}}</h1><div class="meta"><span class="rating">★ {{hero.rating}}</span><span>{{hero.year}}</span><span v-if="hero.runtime">{{hero.runtime}} min</span><span class="quality">{{hero.demo?'OPEN MOVIE':'HD'}}</span></div><p class="summary">{{hero.summary||hero.description_full||'Settle in. Your next great story starts here.'}}</p><p class="tags">{{hero.genres?.join(' · ')}}</p><div class="actions"><button class="primary" @click="open(hero)">▶ Explore movie</button><button class="secondary" @click="toggleSave(hero)">{{savedMovie(hero)?'✓ In my list':'＋ My list'}}</button></div></div><div class="hero-caption">YOUR SEAT. YOUR SCREEN.<br><strong>Stories worth staying in for.</strong></div>
@@ -119,6 +157,6 @@ onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEve
  <p v-if="detailsLoading" class="notice" role="status">Loading movie details…</p>
  <div v-else-if="detailsError" class="notice" role="alert">{{detailsError}} <button @click="route">Try again</button></div>
  <section v-else-if="selected" class="movie-details" aria-labelledby="movie-heading">
- <aside class="detail-poster" v-if="selected.id!=='local'"><img v-if="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :src="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :alt="selected.title" @error="$event.target.style.display='none'"><span>{{selected.title}}</span></aside><div class="detail-content"><p class="eyebrow">{{selected.demo?'OPEN MOVIE COLLECTION':'MOVIE DETAILS'}}</p><h1 id="movie-heading" tabindex="-1">{{selected.title}}</h1><div class="meta"><span v-if="selected.rating" class="rating">★ {{selected.rating}}</span><span>{{selected.year}}</span><span v-if="selected.runtime">{{selected.runtime}} min</span><span>{{selected.genres?.join(' · ')}}</span></div><p class="detail-summary">{{selected.description_full||selected.summary||selected.description_short||'No synopsis available.'}}</p><div v-if="selected.torrents?.length" class="quality-picker"><label for="quality">Quality</label><select id="quality" v-model="quality"><option v-for="(t,i) in selected.torrents" :key="i" :value="i">{{t.quality}} {{t.type}} {{t.size?`· ${t.size}`:''}}</option></select></div><div v-if="selected.id!=='local'" class="actions"><button class="primary" @click="watch()">▶ {{selected.id==='sintel'?'Watch trailer':'Watch now'}}</button><button v-if="selected.demo&&selected.torrents?.length" class="secondary" @click="watch(true)">Stream full movie</button><a v-if="safeUrl(selected.torrents?.[quality]?.url)" class="secondary" :href="safeUrl(selected.torrents[quality].url)" target="_blank" rel="noopener noreferrer">↓ Download torrent</a><button class="secondary" @click="toggleSave(selected)">{{savedMovie(selected)?'✓ Saved':'＋ My list'}}</button></div><div v-if="playing" class="player"><video ref="video" :src="source||undefined" controls playsinline @playing="onPlaying" @error="status='Your browser could not play this source. Try another quality or a local MP4 file.'"></video><p role="status">{{status}}</p><small>{{stats}}</small></div><p v-if="selected.torrents?.length" class="playback-note">Torrent playback requires WebRTC peers and a supported video codec. Leaving this page stops the torrent and sharing.</p></div></section>
+ <aside class="detail-poster" v-if="selected.id!=='local'"><img v-if="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :src="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :alt="selected.title" @error="$event.target.style.display='none'"><span>{{selected.title}}</span></aside><div class="detail-content"><p class="eyebrow">{{selected.demo?'OPEN MOVIE COLLECTION':'MOVIE DETAILS'}}</p><h1 id="movie-heading" tabindex="-1">{{selected.title}}</h1><div class="meta"><span v-if="selected.rating" class="rating">★ {{selected.rating}}</span><span>{{selected.year}}</span><span v-if="selected.runtime">{{selected.runtime}} min</span><span>{{selected.genres?.join(' · ')}}</span></div><p class="detail-summary">{{selected.description_full||selected.summary||selected.description_short||'No synopsis available.'}}</p><div v-if="selected.torrents?.length" class="quality-picker"><label for="quality">Quality</label><select id="quality" v-model="quality"><option v-for="(t,i) in selected.torrents" :key="i" :value="i">{{t.quality}} {{t.type}} {{t.size?`· ${t.size}`:''}}</option></select></div><div v-if="selected.id!=='local'" class="actions"><button class="primary" @click="watch()">▶ {{selected.id==='sintel'?'Watch trailer':'Watch now'}}</button><button v-if="selected.demo&&selected.torrents?.length" class="secondary" @click="watch(true)">Stream full movie</button><a v-if="safeUrl(selected.torrents?.[quality]?.url)" class="secondary" :href="safeUrl(selected.torrents[quality].url)" target="_blank" rel="noopener noreferrer">↓ Download torrent</a><button class="secondary" @click="toggleSave(selected)">{{savedMovie(selected)?'✓ Saved':'＋ My list'}}</button></div><div v-if="playing" class="player"><video ref="video" :src="source||undefined" controls playsinline @playing="onPlaying" @error="videoError"></video><p role="status">{{status}}</p><small>{{stats}}</small></div><p v-if="selected.torrents?.length" class="playback-note">{{playbackMode==='server'?'Server playback needs available torrent seeds and a browser-supported video format. Leaving this page stops the server session.':'Browser torrent playback needs WebRTC peers and a supported video format. Leaving this page stops the torrent and sharing.'}}</p></div></section>
  </main>
 </template>

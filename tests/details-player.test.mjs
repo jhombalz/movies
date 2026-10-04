@@ -76,3 +76,19 @@ test('generated magnet is accepted by WebTorrent torrent parser',async()=>{
  assert.equal(parsed.xs,'https://example.com/movie.torrent')
  assert.throws(()=>page.magnet({hash:'invalid'},{title:'Bad source'}),/invalid torrent hash/)
 })
+
+test('player waits for service worker control, even after activation',async()=>{
+ const worker={state:'activated',scriptURL:'https://example.com/movies/sw.min.js'}
+ const events=new Map()
+ const container={controller:null,register:async()=>({active:worker}),addEventListener:(name,callback)=>events.set(name,callback),removeEventListener:name=>events.delete(name)}
+ const code=readFileSync(new URL('../src/player.js',import.meta.url),'utf8').replace(/export /g,'').replaceAll('import.meta.env.BASE_URL',"'/movies/'")
+ const context=vm.createContext({navigator:{serviceWorker:container},window:{isSecureContext:true},document:{baseURI:'https://example.com/movies/'},URL,setTimeout,clearTimeout})
+ vm.runInContext(code+'\nglobalThis.registerWorker=registerPlayerWorker;',context)
+ let done=false
+ const pending=context.registerWorker().then(()=>{done=true})
+ await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(done,false)
+ assert.equal(events.has('controllerchange'),true)
+ container.controller=worker;events.get('controllerchange')();await pending
+ assert.equal(done,true);assert.equal(events.has('controllerchange'),false)
+})

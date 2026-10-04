@@ -34,5 +34,19 @@ export async function registerPlayerWorker() {
     worker.addEventListener('statechange', check)
     check()
   })
+  // Activation alone does not mean this document's fetches are intercepted yet.
+  const controlsPage = () => navigator.serviceWorker.controller?.scriptURL === registration.active?.scriptURL
+    && Boolean(navigator.serviceWorker.controller)
+  if (!controlsPage()) await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => finish(new Error('The video service worker is not controlling this page. Reload normally and try again.')), 15000)
+    const finish = error => {
+      clearTimeout(timeout)
+      navigator.serviceWorker.removeEventListener('controllerchange', check)
+      error ? reject(error) : resolve()
+    }
+    const check = () => { if (controlsPage()) finish() }
+    navigator.serviceWorker.addEventListener('controllerchange', check)
+    check()
+  })
   return registration
 }

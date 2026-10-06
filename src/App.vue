@@ -16,13 +16,30 @@ try{localStorage.removeItem('frame-streaming-key')}catch{}
 let backendAbort, serverSession, serverPoll, releasePromise=Promise.resolve()
 let client, timer, request, detailRequest, session=0
 const movieCache=new Map()
+const homeUrl=location.pathname?.startsWith('/movie/')?'/':'./'
 try { const data=JSON.parse(localStorage.getItem('frame-watchlist') || '[]'); saved.value=Array.isArray(data)?data:[] } catch {}
 const genres=['Action','Adventure','Animation','Comedy','Crime','Documentary','Drama','Fantasy','Horror','Mystery','Romance','Sci-Fi','Thriller']
 const visible=computed(()=> (tab.value==='My list'?saved.value:movies.value).filter(m=>(!query.value||m.title.toLowerCase().includes(query.value.toLowerCase()))&&(!genre.value||m.genres?.includes(genre.value))&&(!rating.value||m.rating>=Number(rating.value))))
 const heroIndex=ref(0), heroDirection=ref(1)
 const randomPages=new Set()
 function shuffled(items){const result=[...items];for(let i=result.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[result[i],result[j]]=[result[j],result[i]]}return result}
-const featuredMovies=computed(()=>(movies.value.length?movies.value:samples).slice(0,5))
+const latestMovies=ref([])
+let featuredRequest
+const featuredMovies=computed(()=>(latestMovies.value.length?latestMovies.value:samples).slice(0,10))
+async function loadFeatured(){
+ featuredRequest?.abort();featuredRequest=new AbortController();const current=featuredRequest
+ try{
+  const picks=[];const year=new Date().getFullYear()
+  for(let page=1;page<=4&&picks.length<10;page++){
+   const response=await fetch(`https://yts.gg/api/v2/list_movies.json?limit=50&page=${page}&sort_by=year&order_by=desc`,{signal:AbortSignal.any([current.signal,AbortSignal.timeout(12000)])})
+   if(!response.ok)throw Error('Unavailable')
+   const result=await response.json();if(result.status!=='ok'||!Array.isArray(result.data?.movies))throw Error('Unavailable')
+   for(const movie of result.data.movies)if(movie.year<=year&&!picks.some(p=>p.id===movie.id))picks.push(movie)
+   if(!result.data.movies.length)break
+  }
+  if(!current.signal.aborted){latestMovies.value=picks.slice(0,10);heroIndex.value=0}
+ }catch{ /* Keep the open-movie fallback independent of library searches. */ }
+}
 const activeHeroIndex=computed(()=>heroIndex.value%featuredMovies.value.length)
 const hero=computed(()=>featuredMovies.value[activeHeroIndex.value])
 let heroGesture=null
@@ -61,7 +78,7 @@ function savedMovie(m){return saved.value.some(x=>x.id===m.id)}
 function toggleSave(m){saved.value=savedMovie(m)?saved.value.filter(x=>x.id!==m.id):[...saved.value,m];try{localStorage.setItem('frame-watchlist',JSON.stringify(saved.value))}catch{notice.value='Your browser could not save the watchlist.'}}
 async function load(append=false){
  request?.abort();request=new AbortController();const current=request;loading.value=true;notice.value=''
- if(!append){page.value=1;heroIndex.value=0;randomPages.clear()}
+ if(!append){page.value=1;randomPages.clear()}
  try{
   async function fetchPage(number){
    const params=new URLSearchParams({limit:24,page:number,sort_by:sort.value==='random'?'date_added':sort.value,order_by:'desc',query_term:query.value,genre:genre.value,minimum_rating:rating.value||'0'})
@@ -89,6 +106,12 @@ async function load(append=false){
 }
 function browse(name){if(detailRoute.value)close();tab.value=name;if(name==='Top rated')sort.value='rating';else sort.value='random';if(name!=='My list')load()}
 function shuffleDiscover(){sort.value='random';load()}
+const shareStatus=ref('')
+async function shareMovie(){
+ if(!/^\d+$/.test(String(selected.value?.id)))return
+ const url=streamingBase(backendUrl.value)+'/movie/'+selected.value.id
+ try{await navigator.clipboard.writeText(url);shareStatus.value='Share link copied!'}catch{shareStatus.value=url}
+}
 function movieRoute(id){return '#/movie/'+encodeURIComponent(id)}
 function cacheMovie(m){movieCache.set(String(m.id),m);if(m.id!=='local')try{sessionStorage.setItem('frame-movie-'+m.id,JSON.stringify(m))}catch{}}
 function applyMovieInformation({id,movie}){
@@ -105,7 +128,7 @@ function open(m){
 async function route(){
  const match=location.hash.match(/^#\/movie\/([^/]+)$/)
  if(match&&selected.value&&movieRoute(selected.value.id)===location.hash)return
- detailRequest?.abort();stop();quality.value=0;selected.value=null;detailsError.value='';detailsLoading.value=false;detailRoute.value=Boolean(match)
+ shareStatus.value='';detailRequest?.abort();stop();quality.value=0;selected.value=null;detailsError.value='';detailsLoading.value=false;detailRoute.value=Boolean(match)
  if(!match)return
  let id
  try{id=decodeURIComponent(match[1])}catch{detailsError.value='Invalid movie link.';return}
@@ -125,7 +148,7 @@ async function route(){
  finally{if(current===detailRequest)detailsLoading.value=false}
 }
 function stop(){session++;clearTimeout(timer);clearTimeout(serverPoll);backendAbort?.abort();if(serverSession){releasePromise=releaseSession(serverSession);serverSession=null}if(video.value){video.value.pause();video.value.removeAttribute('src');video.value.load()}if(client&&!client.destroyed)client.destroy();client=null;playing.value=false;source.value='';stats.value='';if(localUrl.value){URL.revokeObjectURL(localUrl.value);localUrl.value=''}}
-function close(){detailRequest?.abort();stop();selected.value=null;detailRoute.value=false;detailsError.value='';detailsLoading.value=false;location.hash='';window.scrollTo(0,0)}
+function close(){if(location.pathname?.startsWith('/movie/'))history.replaceState(null,'','/');detailRequest?.abort();stop();selected.value=null;detailRoute.value=false;detailsError.value='';detailsLoading.value=false;location.hash='';window.scrollTo(0,0)}
 const trackers=['wss://tracker.openwebtorrent.com','wss://tracker.webtorrent.dev','wss://tracker.btorrent.xyz']
 function magnet(t,m){const hash=String(t.hash||'').trim();if(!/^(?:[a-f0-9]{40}|[a-z2-7]{32})$/i.test(hash))throw new Error('This movie source has an invalid torrent hash. Try another quality.');const params=new URLSearchParams({dn:m.title});for(const tracker of trackers)params.append('tr',tracker);const metadata=safeUrl(t.url);if(metadata)params.set('xs',metadata);return `magnet:?xt=urn:btih:${hash}&${params}`}
 async function watchOnServer(t,token){
@@ -190,12 +213,12 @@ async function watch(useTorrent=false){
 function onPlaying(){status.value='Playing';clearTimeout(timer)}
 function videoError(){clearTimeout(serverPoll);backendAbort?.abort();if(serverSession){releasePromise=releaseSession(serverSession);serverSession=null}status.value='Your browser could not play this source. Try another quality or a local MP4 file.'}
 function localFile(event){const file=event.target.files[0];if(!file)return;open({id:'local',title:file.name,genres:[],summary:'A movie from your device',torrents:[]});stop();localUrl.value=URL.createObjectURL(file);source.value=localUrl.value;playing.value=true;status.value='Ready to play';event.target.value=''}
-onMounted(()=>{load();route();window.addEventListener('hashchange',route)})
-onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEventListener('hashchange',route)})
+onMounted(()=>{if(!location.hash&&/^\/movie\/\d+$/.test(location.pathname||''))location.hash='#'+location.pathname;loadFeatured();load();route();window.addEventListener('hashchange',route)})
+onUnmounted(()=>{featuredRequest?.abort();request?.abort();detailRequest?.abort();stop();window.removeEventListener('hashchange',route)})
 </script>
 
 <template>
- <header><a class="brand" href="./" aria-label="JhoFlix home"><span class="brand-icon">▥</span> JhoFlix<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
+ <header><a class="brand" :href="homeUrl" aria-label="JhoFlix home"><span class="brand-icon">▥</span> JhoFlix<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
  <main v-if="!detailRoute">
  <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" :class="{'is-dragging':heroDragging}" role="region" aria-roledescription="carousel" aria-label="Featured movies" tabindex="0" @keydown.left.prevent="moveHero(-1)" @keydown.right.prevent="moveHero(1)" @pointerdown="startHeroSwipe" @pointermove="updateHeroSwipe" @pointerup="finishHeroSwipe" @pointercancel="cancelHeroSwipe" @lostpointercapture="cancelHeroSwipe" @dragstart.prevent :style="{'--hero-direction':heroDirection,'--hero-drag':heroDrag+'px'}">
   <Transition name="hero-art"><div :key="hero.id" class="hero-artwork" :style="{backgroundImage:heroArtwork(hero)?`url('${heroArtwork(hero)}')`:undefined}"></div></Transition>
@@ -215,6 +238,6 @@ onUnmounted(()=>{request?.abort();detailRequest?.abort();stop();window.removeEve
  <p v-if="detailsLoading" class="notice" role="status">Loading movie details…</p>
  <div v-else-if="detailsError" class="notice" role="alert">{{detailsError}} <button @click="route">Try again</button></div>
  <section v-else-if="selected" class="movie-details" aria-labelledby="movie-heading">
- <aside class="detail-poster" v-if="selected.id!=='local'"><img v-if="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :src="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :alt="selected.title" @error="$event.target.style.display='none'"><span>{{selected.title}}</span></aside><div class="detail-content"><p class="eyebrow">{{selected.demo?'OPEN MOVIE COLLECTION':'MOVIE DETAILS'}}</p><h1 id="movie-heading" tabindex="-1">{{selected.title}}</h1><div class="meta"><span v-if="selected.rating" class="rating">★ {{selected.rating}}</span><span>{{selected.year}}</span><span v-if="selected.runtime">{{selected.runtime}} min</span><span>{{selected.genres?.join(' · ')}}</span></div><p class="detail-summary">{{selected.description_full||selected.summary||selected.description_short||'No synopsis available.'}}</p><div v-if="selected.torrents?.length" class="quality-picker"><label for="quality">Quality</label><select id="quality" v-model="quality"><option v-for="(t,i) in selected.torrents" :key="i" :value="i">{{t.quality}} {{t.type}} {{t.size?`· ${t.size}`:''}}</option></select></div><div v-if="selected.id!=='local'" class="actions"><button class="primary" @click="watch()">▶ {{selected.id==='sintel'?'Watch trailer':'Watch now'}}</button><button v-if="selected.demo&&selected.torrents?.length" class="secondary" @click="watch(true)">Stream full movie</button><a v-if="safeUrl(selected.torrents?.[quality]?.url)" class="secondary" :href="safeUrl(selected.torrents[quality].url)" target="_blank" rel="noopener noreferrer">↓ Download torrent</a><button class="secondary" @click="toggleSave(selected)">{{savedMovie(selected)?'✓ Saved':'＋ My list'}}</button></div><div v-if="playing" class="player"><video ref="video" :src="source||undefined" controls playsinline @playing="onPlaying" @error="videoError"></video><p role="status">{{status}}</p><small>{{stats}}</small></div><p v-if="selected.torrents?.length" class="playback-note">Playback needs available torrent seeds and a supported video format. Leaving this page stops the stream.</p><MovieRecommendations v-if="/^\d+$/.test(String(selected.id))" :key="'recommendations-'+selected.id" :movie="selected" @open="open" /><MovieInformation v-if="selected.id!=='local'" :key="'tmdb-'+selected.id" :movie="selected" :server="backendUrl" @information="applyMovieInformation" /></div></section>
+ <aside class="detail-poster" v-if="selected.id!=='local'"><img v-if="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :src="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :alt="selected.title" @error="$event.target.style.display='none'"><span>{{selected.title}}</span></aside><div class="detail-content"><p class="eyebrow">{{selected.demo?'OPEN MOVIE COLLECTION':'MOVIE DETAILS'}}</p><h1 id="movie-heading" tabindex="-1">{{selected.title}}</h1><div class="meta"><span v-if="selected.rating" class="rating">★ {{selected.rating}}</span><span>{{selected.year}}</span><span v-if="selected.runtime">{{selected.runtime}} min</span><span>{{selected.genres?.join(' · ')}}</span></div><p class="detail-summary">{{selected.description_full||selected.summary||selected.description_short||'No synopsis available.'}}</p><div v-if="selected.torrents?.length" class="quality-picker"><label for="quality">Quality</label><select id="quality" v-model="quality"><option v-for="(t,i) in selected.torrents" :key="i" :value="i">{{t.quality}} {{t.type}} {{t.size?`· ${t.size}`:''}}</option></select></div><div v-if="selected.id!=='local'" class="actions"><button class="primary" @click="watch()">▶ {{selected.id==='sintel'?'Watch trailer':'Watch now'}}</button><button v-if="selected.demo&&selected.torrents?.length" class="secondary" @click="watch(true)">Stream full movie</button><a v-if="safeUrl(selected.torrents?.[quality]?.url)" class="secondary" :href="safeUrl(selected.torrents[quality].url)" target="_blank" rel="noopener noreferrer">↓ Download torrent</a><button v-if="/^\d+$/.test(String(selected.id))" class="secondary" @click="shareMovie">Share movie</button><span v-if="shareStatus" class="subtle" role="status">{{shareStatus}}</span><button class="secondary" @click="toggleSave(selected)">{{savedMovie(selected)?'✓ Saved':'＋ My list'}}</button></div><div v-if="playing" class="player"><video ref="video" :src="source||undefined" controls playsinline @playing="onPlaying" @error="videoError"></video><p role="status">{{status}}</p><small>{{stats}}</small></div><p v-if="selected.torrents?.length" class="playback-note">Playback needs available torrent seeds and a supported video format. Leaving this page stops the stream.</p><MovieRecommendations v-if="/^\d+$/.test(String(selected.id))" :key="'recommendations-'+selected.id" :movie="selected" @open="open" /><MovieInformation v-if="selected.id!=='local'" :key="'tmdb-'+selected.id" :movie="selected" :server="backendUrl" @information="applyMovieInformation" /></div></section>
  </main>
 </template>

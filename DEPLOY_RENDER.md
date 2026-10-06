@@ -53,3 +53,7 @@ WebTorrent is pinned to 2.8.5. scripts/fix-webtorrent-node.mjs applies an idempo
 ## TMDB movie information and reviews
 
 In Render, open frame-movies > Environment and add TMDB_API_KEY using your TMDB API Key (v3), then save and redeploy. Keep it on the server; do not use a VITE_ variable. The provided key is configured locally in the ignored .env file. Run npm start locally and use the local server origin for the frontend when testing. The server resolves YTS IMDb IDs using TMDB, then returns details, cast, and the first page of reviews. Requests are cached in memory for 30 minutes; no database is required. Existing synopsis and playback stay available if TMDB is unavailable. GitHub Pages requests these details from the Render service.
+
+## Movie share previews
+
+Use the Share movie button on a detail page. It copies https://frame-movies.onrender.com/movie/ID, which serves Open Graph and Twitter metadata before JavaScript runs. GitHub Pages hash links cannot supply a different social preview for each movie. Preview services may cache older results. If moving the Render service to a custom domain, set PUBLIC_SITE_URL to its HTTPS origin and update the frontend server URL. The homepage slider loads up to 10 catalog movies independently, ordered by release year and excluding future years.

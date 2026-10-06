@@ -1,16 +1,18 @@
 import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { stat, readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { authorized, parseRange, readJson, identifier } from './http.js'
 import { createMovieInfo } from './tmdb.js'
+import { shareMetadata, createShareLookup } from './share.js'
 
 const types = { '.html':'text/html; charset=utf-8', '.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.json':'application/json', '.mp4':'video/mp4', '.m4v':'video/mp4', '.webm':'video/webm' }
 
 export function createStreamingServer({ client, apiKey, publicPlayback = false, downloadPath, staticPath = resolve('dist'), allowedOrigins = [], maxBytes = 4 * 1024 ** 3, idleMs = 5 * 60 * 1000 }) {
   const sessions = new Map()
   const movieInfo=createMovieInfo()
+  const shareLookup=createShareLookup()
   const hashSessions = new Map()
   function json(res, code, data) { res.writeHead(code, { 'Content-Type':'application/json', 'Cache-Control':'no-store' }); res.end(JSON.stringify(data)) }
   function remove(id) {
@@ -38,6 +40,15 @@ export function createStreamingServer({ client, apiKey, publicPlayback = false, 
     try { path = decodeURIComponent(new URL(req.url,'http://localhost').pathname) } catch { return json(res,400,{error:'Invalid URL.'}) }
     try {
       if (path === '/health' && req.method === 'GET') return json(res,200,{ok:true})
+      if(path.startsWith('/movie/')&&['GET','HEAD'].includes(req.method)){
+        let movie
+        try{movie=await shareLookup(path.slice(7))}catch{return json(res,503,{error:'Movie details are temporarily unavailable. Please try again.'})}
+        if(!movie)return json(res,404,{error:'Movie not found.'})
+        const origin=process.env.PUBLIC_SITE_URL||'https://frame-movies.onrender.com'
+        const html=(await readFile(resolve(staticPath,'index.html'),'utf8')).replace(/<title>[^<]*<\/title>/,()=>shareMetadata(movie,origin+'/movie/'+movie.id))
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'public, max-age=300'})
+        return res.end(req.method==='HEAD'?undefined:html)
+      }
       if(path.startsWith('/api/movies/')&&req.method==='GET'){
         const result=await movieInfo(path.slice('/api/movies/'.length))
         return json(res,result.code,result.error?{error:result.error}:{movie:result.movie})

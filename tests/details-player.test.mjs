@@ -17,9 +17,9 @@ function app(options={}){
 test('movie pages have URLs, survive refresh, and support back/forward',async()=>{
  const sessionStorage=storage();const first=app({sessionStorage})
  first.open({id:42,title:'A movie',torrents:[]});await nextTick()
- assert.equal(first.context.location.hash,'#/movie/42')
+ assert.equal(first.context.location.hash,'#/movie/42?title=A%20movie')
  assert.equal(first.selected.value.title,'A movie')
- const refreshed=app({sessionStorage});refreshed.context.location.hash='#/movie/42';await refreshed.route()
+ const refreshed=app({sessionStorage});refreshed.context.location.hash='#/movie/42?title=A%20movie';await refreshed.route()
  assert.equal(refreshed.selected.value.title,'A movie')
  refreshed.context.location.hash='';await refreshed.route();assert.equal(refreshed.detailRoute.value,false)
  refreshed.context.location.hash='#/movie/42';await refreshed.route();assert.equal(refreshed.selected.value.id,42)

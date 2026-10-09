@@ -109,10 +109,10 @@ function shuffleDiscover(){sort.value='random';load()}
 const shareStatus=ref('')
 async function shareMovie(){
  if(!/^\d+$/.test(String(selected.value?.id)))return
- const url=streamingBase(backendUrl.value)+'/movie/'+selected.value.id
+ const url=streamingBase(backendUrl.value)+'/movie/'+selected.value.id+'?title='+encodeURIComponent(selected.value.title)
  try{await navigator.clipboard.writeText(url);shareStatus.value='Share link copied!'}catch{shareStatus.value=url}
 }
-function movieRoute(id){return '#/movie/'+encodeURIComponent(id)}
+function movieRoute(id,title){return '#/movie/'+encodeURIComponent(id)+(title?'?title='+encodeURIComponent(title):'')}
 function cacheMovie(m){movieCache.set(String(m.id),m);if(m.id!=='local')try{sessionStorage.setItem('frame-movie-'+m.id,JSON.stringify(m))}catch{}}
 function applyMovieInformation({id,movie}){
  if(!movie||String(selected.value?.id)!==String(id))return
@@ -120,14 +120,14 @@ function applyMovieInformation({id,movie}){
 }
 function open(m){
  cacheMovie(m)
- if(location.hash===movieRoute(m.id)){stop();selected.value=m;quality.value=0;return}
- location.hash=movieRoute(m.id)
+ if(location.hash===movieRoute(m.id,m.title)){stop();selected.value=m;quality.value=0;return}
+ location.hash=movieRoute(m.id,m.title)
  // Update immediately so local-file playback can attach to the new page.
  route()
 }
 async function route(){
- const match=location.hash.match(/^#\/movie\/([^/]+)$/)
- if(match&&selected.value&&movieRoute(selected.value.id)===location.hash)return
+ const match=location.hash.match(/^#\/movie\/([^/?]+)(?:\?.*)?$/)
+ if(match&&selected.value&&encodeURIComponent(selected.value.id)===match[1])return
  shareStatus.value='';detailRequest?.abort();stop();quality.value=0;selected.value=null;detailsError.value='';detailsLoading.value=false;detailRoute.value=Boolean(match)
  if(!match)return
  let id

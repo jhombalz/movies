@@ -17,3 +17,10 @@ export function createShareLookup(fetcher=fetch){
   cache.set(id,{movie,expires:Date.now()+3600000});return movie
  }
 }
+export function sharePage(movie,canonical,frontend){
+ const url=new URL(frontend)
+ if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname)))throw Error('Invalid frontend URL')
+ url.hash='/movie/'+movie.id+'?title='+encodeURIComponent(movie.title)
+ const target=url.href
+ return `<!doctype html><html><head><meta charset="utf-8">${shareMetadata(movie,canonical)}</head><body><h1>${escape(movie.title)}</h1><a href="${escape(target)}">Open movie on JhoFlix</a><script>location.replace(${JSON.stringify(target).replace(/</g,'\\u003c')})</script></body></html>`
+}

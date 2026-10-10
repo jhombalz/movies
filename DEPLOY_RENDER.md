@@ -1,3 +1,9 @@
+# API-only backend and separate frontend
+
+The backend no longer serves the Vue website. Use [LOCAL_SETUP.md](LOCAL_SETUP.md) for current local and deployment instructions. Backend: npm ci, npm start, health check /api/health. Frontend: build dist separately with VITE_API_URL set to the backend HTTPS origin. Set backend FRONTEND_URL, PUBLIC_SITE_URL, and ALLOWED_ORIGINS for your deployment.
+
+<details><summary>Previous combined Render deployment notes (superseded)</summary>
+
 # Deploy Frame on Render
 
 Node.js streaming is the default player. The website has no player settings or streaming-key field. GitHub Pages automatically uses https://frame-movies.onrender.com; on an onrender.com host it uses that service's own origin. Old browser-saved streaming keys are removed when the app opens.
@@ -57,3 +63,5 @@ In Render, open frame-movies > Environment and add TMDB_API_KEY using your TMDB 
 ## Movie share previews
 
 Use the Share movie button on a detail page. It copies https://frame-movies.onrender.com/movie/ID, which serves Open Graph and Twitter metadata before JavaScript runs. GitHub Pages hash links cannot supply a different social preview for each movie. Preview services may cache older results. If moving the Render service to a custom domain, set PUBLIC_SITE_URL to its HTTPS origin and update the frontend server URL. The homepage slider loads up to 10 catalog movies independently, ordered by release year and excluding future years.
+
+</details>

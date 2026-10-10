@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { loadWebTorrent, registerPlayerWorker } from './player.js'
 import { streamingBase, serverRequest, releaseSession } from './backend.js'
+import { API_URL } from './config.js'
 import MovieRecommendations from './MovieRecommendations.vue'
 import MovieInformation from './MovieInformation.vue'
 const samples = [
@@ -11,7 +12,7 @@ const samples = [
 ]
 const movies=ref(samples), loading=ref(false), notice=ref(''), query=ref(''), genre=ref(''), rating=ref(''), sort=ref('random'), tab=ref('Discover'), page=ref(1), more=ref(false), selected=ref(null), quality=ref(0), playing=ref(false), video=ref(null), status=ref(''), source=ref(''), localUrl=ref(''), stats=ref(''), saved=ref([])
 const detailsLoading=ref(false), detailsError=ref(''), detailRoute=ref(false)
-const playbackMode=ref('server'), backendUrl=ref(location.hostname?.endsWith('.onrender.com')?location.origin:'https://frame-movies.onrender.com')
+const playbackMode=ref('server'), backendUrl=ref(typeof API_URL==='string'?API_URL:'http://127.0.0.1:3000')
 try{localStorage.removeItem('frame-streaming-key')}catch{}
 let backendAbort, serverSession, serverPoll, releasePromise=Promise.resolve()
 let client, timer, request, detailRequest, session=0

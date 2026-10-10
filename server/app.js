@@ -1,15 +1,13 @@
 import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { createReadStream } from 'node:fs'
-import { stat, readFile } from 'node:fs/promises'
-import { resolve, extname, sep } from 'node:path'
+import { extname } from 'node:path'
 import { authorized, parseRange, readJson, identifier } from './http.js'
 import { createMovieInfo } from './tmdb.js'
-import { shareMetadata, createShareLookup } from './share.js'
+import { sharePage, createShareLookup } from './share.js'
 
 const types = { '.html':'text/html; charset=utf-8', '.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.json':'application/json', '.mp4':'video/mp4', '.m4v':'video/mp4', '.webm':'video/webm' }
 
-export function createStreamingServer({ client, apiKey, publicPlayback = false, downloadPath, staticPath = resolve('dist'), allowedOrigins = [], maxBytes = 4 * 1024 ** 3, idleMs = 5 * 60 * 1000 }) {
+export function createStreamingServer({ client, apiKey, publicPlayback = false, downloadPath, allowedOrigins = [], maxBytes = 4 * 1024 ** 3, idleMs = 5 * 60 * 1000 }) {
   const sessions = new Map()
   const movieInfo=createMovieInfo()
   const shareLookup=createShareLookup()
@@ -39,13 +37,13 @@ export function createStreamingServer({ client, apiKey, publicPlayback = false, 
     let path
     try { path = decodeURIComponent(new URL(req.url,'http://localhost').pathname) } catch { return json(res,400,{error:'Invalid URL.'}) }
     try {
-      if (path === '/health' && req.method === 'GET') return json(res,200,{ok:true})
+      if (['/api/health','/health'].includes(path) && req.method === 'GET') return json(res,200,{ok:true})
       if(path.startsWith('/movie/')&&['GET','HEAD'].includes(req.method)){
         let movie
         try{movie=await shareLookup(path.slice(7))}catch{return json(res,503,{error:'Movie details are temporarily unavailable. Please try again.'})}
         if(!movie)return json(res,404,{error:'Movie not found.'})
         const origin=process.env.PUBLIC_SITE_URL||'https://frame-movies.onrender.com'
-        const html=(await readFile(resolve(staticPath,'index.html'),'utf8')).replace(/<title>[^<]*<\/title>/,()=>shareMetadata(movie,origin+'/movie/'+movie.id+'?title='+encodeURIComponent(movie.title)))
+        const html=sharePage(movie,origin+'/movie/'+movie.id+'?title='+encodeURIComponent(movie.title),process.env.FRONTEND_URL||'https://jhombalz.github.io/movies/')
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'public, max-age=300'})
         return res.end(req.method==='HEAD'?undefined:html)
       }
@@ -104,15 +102,7 @@ export function createStreamingServer({ client, apiKey, publicPlayback = false, 
         }
         return json(res,405,{error:'Method not allowed.'})
       }
-      if (path.startsWith('/api/')) return json(res,404,{error:'Endpoint not found.'})
-      if (!['GET','HEAD'].includes(req.method)) return json(res,405,{error:'Method not allowed.'})
-      const file=resolve(staticPath,'.'+(path==='/'?'/index.html':path))
-      if (!file.startsWith(resolve(staticPath)+sep)) return json(res,403,{error:'Invalid path.'})
-      const info=await stat(file).catch(()=>null)
-      if (!info?.isFile()) return json(res,404,{error:'File not found.'})
-      res.writeHead(200,{'Content-Type':types[extname(file)]||'application/octet-stream','Content-Length':info.size,'Cache-Control':path==='/'||path==='/index.html'?'no-cache':'public, max-age=3600'})
-      if (req.method==='HEAD') return res.end()
-      createReadStream(file).on('error',()=>res.destroy()).pipe(res)
+      return json(res,404,{error:'Endpoint not found. Use /api/health to check this API.'})
     } catch { if (!res.headersSent) json(res,500,{error:'The server could not process playback.'});else res.destroy() }
   })
   server.on('close',()=>{clearInterval(sweep);for(const id of sessions.keys())remove(id)})

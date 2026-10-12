@@ -42,7 +42,7 @@ export function createStreamingServer({ client, apiKey, publicPlayback = false, 
         let movie
         try{movie=await shareLookup(path.slice(7))}catch{return json(res,503,{error:'Movie details are temporarily unavailable. Please try again.'})}
         if(!movie)return json(res,404,{error:'Movie not found.'})
-        const origin=process.env.PUBLIC_SITE_URL||'https://frame-movies.onrender.com'
+        const origin=process.env.PUBLIC_SITE_URL||'https://movies-o9pd.onrender.com'
         const html=sharePage(movie,origin+'/movie/'+movie.id+'?title='+encodeURIComponent(movie.title),process.env.FRONTEND_URL||'https://jhombalz.github.io/movies/')
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'public, max-age=300'})
         return res.end(req.method==='HEAD'?undefined:html)

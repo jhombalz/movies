@@ -32,7 +32,7 @@ jobs:
       - run: npm run build -- --base=/movies/
         env:
           VITE_API_URL: https://movies-o9pd.onrender.com
-          VITE_API_URLS: ${{ vars.VITE_API_URLS }}
+          VITE_API_URLS: https://frame-movies.onrender.com,https://movies-o9pd.onrender.com,https://movies-fxkd.onrender.com
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: dist

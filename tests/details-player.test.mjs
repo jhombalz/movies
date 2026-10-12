@@ -5,14 +5,28 @@ import vm from 'node:vm'
 import { ref, computed, nextTick } from 'vue'
 import parseTorrent from 'parse-torrent'
 import { streamingBase } from '../src/backend.js'
+import { serverList } from '../src/servers.js'
 
 const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
- const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
+ const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
  vm.runInContext(appScript+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source};',context)
  return {context,...context.api}
 }
+test('playback falls back to a second server after the primary returns 503',async()=>{
+ const attempts=[],id='a'.repeat(48)
+ const page=app({servers:['https://frame-movies.onrender.com','https://backup.example'],serverRequest:async(base,path)=>{
+  if(path==='/api/play'){
+   attempts.push(base)
+   if(base.includes('frame-movies')){const error=new Error('Unavailable');error.status=503;throw error}
+   return{id}
+  }
+  return{ready:true}
+ }})
+ page.playbackMode.value='server';page.open({id:42,title:'Movie',torrents:[{hash:'a'.repeat(40)}]})
+ await page.watch();assert.deepEqual(attempts,['https://frame-movies.onrender.com','https://backup.example']);assert.equal(page.source.value,`https://backup.example/api/sessions/${id}/video`);page.close()
+})
 
 test('movie pages have URLs, survive refresh, and support back/forward',async()=>{
  const sessionStorage=storage();const first=app({sessionStorage})

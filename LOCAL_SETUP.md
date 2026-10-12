@@ -17,3 +17,7 @@ To use an online backend, copy `.env.local.example` to `.env.local` and set `VIT
 The backend can deploy with `npm ci` and `npm start`, without building the frontend. Deploy the frontend's `dist` folder separately after `npm run build -- --base=/movies/` for GitHub Pages, or `--base=/` for a root-domain host.
 
 Add the frontend origin to backend `ALLOWED_ORIGINS`. Set `FRONTEND_URL` to the frontend website URL and `PUBLIC_SITE_URL` to the public backend origin. Share URLs still serve movie metadata from the backend, then direct visitors to the separate frontend. Public visitors cannot access a backend URL pointing to localhost.
+
+## Multiple streaming servers
+
+Set VITE_API_URLS to comma-separated backend HTTPS origins, for example https://api1.example.com,https://api2.example.com. For GitHub Pages, add VITE_API_URLS under Settings > Secrets and variables > Actions > Variables and rerun the deploy workflow. The dropdown labels them Server 1, Server 2, etc. Health checks run on load, every minute, and on Refresh servers; they allow up to 45 seconds for free-tier cold starts. Unavailable servers are disabled and checked again later. Each backend must allow the frontend origin and expose /api/health with JSON {"ok":true}. Playback tries another server on connection/5xx failures; an unhealthy server during playback starts a new torrent session on a backup and attempts to restore the playback position. Movie-source errors do not mark healthy servers offline. Servers in one Render workspace may share quotas.

@@ -8,7 +8,7 @@ export function streamingBase(value) {
 export async function serverRequest(base,path,{signal,method='GET',key,body}={}) {
   const response=await fetch(base+path,{method,signal,headers:{...(key?{Authorization:`Bearer ${key}`} : {}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined})
   const data=await response.json().catch(()=>({}))
-  if(!response.ok)throw new Error(data.error||`Streaming server returned HTTP ${response.status}.`)
+  if(!response.ok){const error=new Error(data.error||`Streaming server returned HTTP ${response.status}.`);error.status=response.status;throw error}
   return data
 }
 

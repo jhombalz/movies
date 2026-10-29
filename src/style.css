@@ -29,3 +29,5 @@
 .hero-filters{position:absolute;right:6%;top:20px;z-index:3;display:flex;align-items:center;gap:10px;font-size:12px;color:#aeb3bf}.hero-filters label{font-size:11px}.hero-filters select{padding:8px 10px}.banner-notice{margin:16px 6%}@media(max-width:700px){.hero:has(.hero-filters){padding-top:85px}.hero-filters{left:6%;right:auto;top:16px}.hero-filters select{max-width:145px}}
 
 .player-tabs{display:flex;gap:8px;margin:24px 0 18px;flex-wrap:wrap}.player-tabs button{display:flex;align-items:center;gap:10px;padding:12px 18px;background:#1b1d22;border:1px solid #303239;border-radius:8px;font-size:13px;font-weight:600}.player-tabs button span{font-size:11px;color:#9298a2;font-weight:400}.player-tabs button.active{border-color:#c2f078;background:#c2f07815;color:#c2f078}.player-tabs button.active span{color:#c2f078}.player-tabs button:disabled{cursor:not-allowed}
+
+.player-ad-warning{padding:14px 16px;border:1px solid #e5b65345;background:#e5b6530c;color:#d8c69b;border-radius:8px;font-size:12px;line-height:1.7;margin:0 0 20px}

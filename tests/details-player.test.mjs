@@ -6,13 +6,13 @@ import { ref, computed, nextTick } from 'vue'
 import parseTorrent from 'parse-torrent'
 import { streamingBase } from '../src/backend.js'
 import { serverList } from '../src/servers.js'
-import { vidsrcEmbedUrl } from '../src/vidsrc.js'
+import { vidsrcEmbedUrl, playerEmbedUrl, embeddedPlayers } from '../src/vidsrc.js'
 import { catalogRequest, recommendedBannerMovie } from '../src/catalog.js'
 
 const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
- const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,vidsrcEmbedUrl,catalogRequest,recommendedBannerMovie,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
+ const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,vidsrcEmbedUrl,playerEmbedUrl,embeddedPlayers,catalogRequest,recommendedBannerMovie,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
  vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source,load,loadFeatured,movies,sort,rating,latestMovies,bannerLanguage};',context)
  return {context,...context.api}
 }
@@ -195,6 +195,33 @@ test('VidSrc requires a valid IMDb ID rather than a catalog movie ID',async()=>{
  assert.equal(vidsrcEmbedUrl('42'),'');assert.equal(vidsrcEmbedUrl('tt12345/redirect'),'')
  const page=app({backendEnabled:false});page.open({id:42,title:'No IMDb ID',torrents:[]})
  await vm.runInContext("selectPlayer('vidsrc')",page.context);assert.match(page.status.value,/no IMDb ID/);page.close()
+})
+test('VidFast uses IMDb IDs and VidLink resolves and caches a separate TMDB ID',async()=>{
+ let requests=0
+ const page=app({backendEnabled:false,serverRequest:async(base,path)=>{requests++;assert.equal(path,'/api/movies/tt17048514');return{movie:{id:927085}}}})
+ page.open({id:42,title:'Movie',imdb_code:'tt17048514',torrents:[]})
+ await vm.runInContext("selectPlayer('vidfast')",page.context)
+ assert.equal(requests,0);assert.equal(vm.runInContext('vidsrcSource.value',page.context),'https://vidfast.to/embed/movie/tt17048514')
+ await vm.runInContext("selectPlayer('vidlink')",page.context)
+ assert.equal(requests,1);assert.equal(vm.runInContext('vidsrcSource.value',page.context),'https://vidlink.pro/movie/927085')
+ assert.equal(page.selected.value.tmdb_id,927085)
+ await page.watch();assert.equal(requests,1);page.close()
+})
+test('failed VidLink lookup does not embed a catalog ID and allows switching back',async()=>{
+ const page=app({backendEnabled:false,serverRequest:async()=>{throw Error('Metadata unavailable')}})
+ page.open({id:42,title:'Movie',imdb_code:'tt17048514',torrents:[]})
+ await vm.runInContext("selectPlayer('vidlink')",page.context)
+ assert.equal(vm.runInContext('vidsrcSource.value',page.context),'');assert.match(page.status.value,/TMDB ID could not be retrieved/)
+ await vm.runInContext("selectPlayer('vidfast')",page.context);assert.match(vm.runInContext('vidsrcSource.value',page.context),/vidfast\.to/);page.close()
+})
+test('switching providers cancels an in-flight VidLink lookup',async()=>{
+ let complete,started
+ const began=new Promise(resolve=>{started=resolve})
+ const page=app({backendEnabled:false,serverRequest:()=>new Promise(resolve=>{complete=resolve;started()})})
+ page.open({id:42,title:'Movie',imdb_code:'tt17048514',torrents:[]})
+ const pending=vm.runInContext("selectPlayer('vidlink')",page.context);await began
+ await vm.runInContext("selectPlayer('vidfast')",page.context);complete({movie:{id:927085}});await pending
+ assert.equal(vm.runInContext('vidsrcSource.value',page.context),'https://vidfast.to/embed/movie/tt17048514');page.close()
 })
 
 

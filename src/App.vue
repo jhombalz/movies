@@ -165,7 +165,7 @@ async function shareMovie(){
   shareStatus.value='Copy this link to share the movie:';shareLink.value=url
  }
 }
-function movieRoute(id,title){return '#/movie/'+encodeURIComponent(id)+(title?'?title='+encodeURIComponent(title):'')}
+function movieRoute(id,title){return '#/movie/'+encodeURIComponent(id)+(title?'?title='+encodeURIComponent(String(title).trim().replace(/\s+/g,'-')):'')}
 function cacheMovie(m){movieCache.set(String(m.id),m);if(m.id!=='local')try{sessionStorage.setItem('frame-movie-'+m.id,JSON.stringify(m))}catch{}}
 function applyMovieInformation({id,movie}){
  if(!movie||String(selected.value?.id)!==String(id))return

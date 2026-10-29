@@ -4,6 +4,7 @@ import { loadWebTorrent, registerPlayerWorker } from './player.js'
 import { streamingBase, serverRequest, releaseSession } from './backend.js'
 import { API_URL, API_URLS } from './config.js'
 import { serverList, serverHealth } from './servers.js'
+import { catalogRequest, recommendedBannerMovie } from './catalog.js'
 import MovieRecommendations from './MovieRecommendations.vue'
 import MovieInformation from './MovieInformation.vue'
 import WebtorPlayer from './WebtorPlayer.vue'
@@ -14,7 +15,7 @@ const samples = [
  {id:'bbb',title:'Big Buck Bunny',year:2008,rating:6.5,runtime:10,genres:['Animation','Comedy'],summary:'A gentle giant finds his peaceful afternoon interrupted by three mischievous woodland creatures. An open movie by the Blender Foundation.',stream:'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',demo:true,torrents:[]},
  {id:'tears',title:'Tears of Steel',year:2012,rating:5.5,runtime:12,genres:['Sci-Fi','Action'],summary:'In a future Amsterdam, a team of scientists and soldiers attempts to save the world from destructive robots.',stream:'https://storage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',demo:true,torrents:[]}
 ]
-const movies=ref(samples), loading=ref(false), notice=ref(''), query=ref(''), genre=ref(''), rating=ref(''), sort=ref('random'), tab=ref('Discover'), page=ref(1), more=ref(false), selected=ref(null), quality=ref(0), playing=ref(false), video=ref(null), status=ref(''), source=ref(''), localUrl=ref(''), stats=ref(''), saved=ref([])
+const movies=ref(samples), loading=ref(false), notice=ref(''), query=ref(''), genre=ref(''), rating=ref(''), sort=ref('date_added'), tab=ref('Discover'), page=ref(1), more=ref(false), selected=ref(null), quality=ref(0), playing=ref(false), video=ref(null), status=ref(''), source=ref(''), localUrl=ref(''), stats=ref(''), saved=ref([])
 const detailsLoading=ref(false), detailsError=ref(''), detailRoute=ref(false)
 function highQuality(t){const label=String(t?.quality||'');return /\b(?:[248]k|uhd)\b/i.test(label)||Number(label.match(/(\d{3,4})p/i)?.[1]||0)>720}
 function allowedQuality(t){return /^(720p|1080p)$/i.test(String(t?.quality||'').trim())}
@@ -68,21 +69,23 @@ const heroIndex=ref(0), heroDirection=ref(1)
 const randomPages=new Set()
 function shuffled(items){const result=[...items];for(let i=result.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[result[i],result[j]]=[result[j],result[i]]}return result}
 const latestMovies=ref([])
+const bannerLanguage=ref('en'),bannerLoading=ref(false),bannerNotice=ref('')
 let featuredRequest
-const featuredMovies=computed(()=>(latestMovies.value.length?latestMovies.value:samples).slice(0,10))
+const featuredMovies=computed(()=>(latestMovies.value.length?latestMovies.value:samples.filter(m=>m.rating>=7)).slice(0,10))
 async function loadFeatured(){
  featuredRequest?.abort();featuredRequest=new AbortController();const current=featuredRequest
+ bannerLoading.value=true;bannerNotice.value='';latestMovies.value=[];heroIndex.value=0
  try{
   const picks=[];const year=new Date().getFullYear()
-  for(let page=1;page<=4&&picks.length<10;page++){
-   const response=await fetch(`https://yts.gg/api/v2/list_movies.json?limit=50&page=${page}&sort_by=year&order_by=desc`,{signal:AbortSignal.any([current.signal,AbortSignal.timeout(12000)])})
-   if(!response.ok)throw Error('Unavailable')
-   const result=await response.json();if(result.status!=='ok'||!Array.isArray(result.data?.movies))throw Error('Unavailable')
-   for(const movie of result.data.movies)if(movie.year<=year&&!picks.some(p=>p.id===movie.id))picks.push(movie)
-   if(!result.data.movies.length)break
+  for(let page=1;page<=6&&picks.length<10;page++){
+   const data=await catalogRequest('list_movies',{limit:50,page,minimum_rating:7,sort_by:'year',order_by:'desc'},{signal:current.signal,fetcher:fetch})
+   const list=data.movies||[]
+   for(const movie of list)if(recommendedBannerMovie(movie,bannerLanguage.value,year)&&!picks.some(p=>p.id===movie.id))picks.push(movie)
+   if(!list.length||list.every(movie=>Number(movie.year)<year-2))break
   }
-  if(!current.signal.aborted){latestMovies.value=picks.slice(0,10);heroIndex.value=0}
- }catch{ /* Keep the open-movie fallback independent of library searches. */ }
+  if(!current.signal.aborted){latestMovies.value=picks.slice(0,10);heroIndex.value=0;if(!picks.length)bannerNotice.value='No recent 7+ movies found for this language. Showing an open-movie demo.'}
+ }catch{if(!current.signal.aborted)bannerNotice.value='Featured movies are unavailable. Showing an open-movie demo.'}
+ finally{if(current===featuredRequest)bannerLoading.value=false}
 }
 const activeHeroIndex=computed(()=>heroIndex.value%featuredMovies.value.length)
 const hero=computed(()=>featuredMovies.value[activeHeroIndex.value])
@@ -125,11 +128,7 @@ async function load(append=false){
  if(!append){page.value=1;randomPages.clear()}
  try{
   async function fetchPage(number){
-   const params=new URLSearchParams({limit:24,page:number,sort_by:sort.value==='random'?'date_added':sort.value,order_by:'desc',query_term:query.value,genre:genre.value,minimum_rating:rating.value||'0'})
-   const response=await fetch(`https://yts.gg/api/v2/list_movies.json?${params}`,{signal:AbortSignal.any([current.signal,AbortSignal.timeout(12000)])})
-   if(!response.ok)throw new Error('Catalog unavailable')
-   const result=await response.json();if(result.status!=='ok'||!result.data)throw new Error('Invalid catalog response')
-   return result.data
+   return catalogRequest('list_movies',{limit:24,page:number,sort_by:sort.value==='random'?'date_added':sort.value,order_by:'desc',query_term:query.value,genre:genre.value,minimum_rating:sort.value==='random'?Math.max(7,Number(rating.value)||0):rating.value||'0'},{signal:current.signal,fetcher:fetch})
   }
   let data=await fetchPage(sort.value==='random'?1:page.value)
   const totalPages=Math.ceil((data.movie_count||0)/24)
@@ -142,13 +141,13 @@ async function load(append=false){
    page.value=picked;randomPages.add(picked)
   }
   if(current.signal.aborted)return
-  const list=sort.value==='random'?shuffled(data.movies||[]):data.movies||[]
+  const list=sort.value==='random'?shuffled((data.movies||[]).filter(movie=>Number(movie.rating)>=Math.max(7,Number(rating.value)||0))):data.movies||[]
   movies.value=append?[...movies.value,...list.filter(movie=>!movies.value.some(existing=>existing.id===movie.id))]:list
   more.value=sort.value==='random'?randomPages.size<totalPages:page.value*24<(data.movie_count||0)
- }catch(e){if(current.signal.aborted)return; if(!append){movies.value=sort.value==='random'?shuffled(samples):samples;more.value=false}notice.value='The movie catalog is unavailable. Explore the open-movie demo collection or play a file from your device.'}
+ }catch(e){if(current.signal.aborted)return; if(!append){movies.value=sort.value==='random'?shuffled(samples.filter(m=>m.rating>=7)):samples;more.value=false}notice.value='The movie catalog is unavailable. Explore the open-movie demo collection or play a file from your device.'}
  finally{if(current===request)loading.value=false}
 }
-function browse(name){if(detailRoute.value)close();tab.value=name;if(name==='Top rated')sort.value='rating';else sort.value='random';if(name!=='My list')load()}
+function browse(name){if(detailRoute.value)close();tab.value=name;if(name==='Top rated')sort.value='rating';else sort.value='date_added';if(name!=='My list')load()}
 function shuffleDiscover(){sort.value='random';load()}
 const shareStatus=ref(''),shareLink=ref('')
 let snackbarTimer
@@ -191,12 +190,10 @@ async function route(){
  if(!/^\d+$/.test(id)){detailsError.value=id==='local'?'Choose the local movie file again to play it.':'This movie could not be found.';return}
  detailsLoading.value=true;detailRequest=new AbortController();const current=detailRequest
  try{
-  const response=await fetch('https://yts.gg/api/v2/movie_details.json?movie_id='+encodeURIComponent(id),{signal:AbortSignal.any([current.signal,AbortSignal.timeout(12000)])})
-  if(!response.ok)throw new Error('Movie details are unavailable.')
-  const result=await response.json()
-  if(result.status!=='ok'||!result.data?.movie||String(result.data.movie.id)!==id)throw new Error('This movie could not be found.')
+  const data=await catalogRequest('movie_details',{movie_id:id},{signal:current.signal,fetcher:fetch})
+  if(!data.movie||String(data.movie.id)!==id)throw new Error('This movie could not be found.')
   if(current.signal.aborted)return
-  selected.value=result.data.movie;quality.value=defaultQuality(selected.value);cacheMovie(selected.value);window.scrollTo(0,0);await nextTick();document.querySelector('#movie-heading')?.focus();if(playbackMode.value==='webtor')await watch(false,false)
+  selected.value=data.movie;quality.value=defaultQuality(selected.value);cacheMovie(selected.value);window.scrollTo(0,0);await nextTick();document.querySelector('#movie-heading')?.focus();if(playbackMode.value==='webtor')await watch(false,false)
  }catch(e){if(!current.signal.aborted)detailsError.value=e.message}
  finally{if(current===detailRequest)detailsLoading.value=false}
 }
@@ -320,11 +317,12 @@ onUnmounted(()=>{dismissShare();healthAbort?.abort();clearTimeout(healthTimer);f
  <main v-if="!detailRoute">
  <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" :class="{'is-dragging':heroDragging}" role="region" aria-roledescription="carousel" aria-label="Featured movies" tabindex="0" @keydown.left.prevent="moveHero(-1)" @keydown.right.prevent="moveHero(1)" @pointerdown="startHeroSwipe" @pointermove="updateHeroSwipe" @pointerup="finishHeroSwipe" @pointercancel="cancelHeroSwipe" @lostpointercapture="cancelHeroSwipe" @dragstart.prevent :style="{'--hero-direction':heroDirection,'--hero-drag':heroDrag+'px'}">
   <Transition name="hero-art"><div :key="hero.id" class="hero-artwork" :style="{backgroundImage:heroArtwork(hero)?`url('${heroArtwork(hero)}')`:undefined}"></div></Transition>
-  <div class="hero-shade"></div>
-  <div class="hero-copy" aria-live="polite" aria-atomic="true"><Transition name="hero-slide" mode="out-in"><div :key="hero.id" class="hero-content"><p class="eyebrow"><span></span> YOUR NEXT MOVIE NIGHT</p><h1>{{hero.title}}</h1><div class="meta"><span class="rating">★ {{hero.rating}}</span><span>{{hero.year}}</span><span v-if="hero.runtime">{{hero.runtime}} min</span><span class="quality">{{hero.demo?'OPEN MOVIE':'HD'}}</span></div><p class="summary">{{hero.summary||hero.description_full||'Settle in. Your next great story starts here.'}}</p><p class="tags">{{hero.genres?.join(' · ')}}</p><div class="actions"><button class="primary" @click="open(hero)">▶ Explore movie</button><button class="secondary" @click="toggleSave(hero)">{{savedMovie(hero)?'✓ In my list':'＋ My list'}}</button></div></div></Transition></div><div v-if="featuredMovies.length>1" class="hero-controls"><button class="hero-arrow" aria-label="Previous featured movie" @click="moveHero(-1)">←</button><div class="hero-dots"><button v-for="(movie,i) in featuredMovies" :key="movie.id" :class="{active:i===activeHeroIndex}" :aria-label="`Show featured movie ${i+1}: ${movie.title}`" :aria-current="i===activeHeroIndex?'true':undefined" @click="selectHero(i)"></button></div><button class="hero-arrow" aria-label="Next featured movie" @click="moveHero(1)">→</button><span class="hero-position">{{activeHeroIndex+1}} / {{featuredMovies.length}}</span></div><div class="hero-caption">YOUR SEAT. YOUR SCREEN.<br><strong>Stories worth staying in for.</strong></div>
+  <div class="hero-shade"></div><div class="hero-filters"><label for="banner-language">Banner language</label><select id="banner-language" v-model="bannerLanguage" @change="loadFeatured"><option value="">All languages</option><option value="en">English</option><option value="tl">Filipino</option><option value="ko">Korean</option><option value="ja">Japanese</option><option value="fr">French</option><option value="es">Spanish</option><option value="hi">Hindi</option></select><span v-if="bannerLoading" role="status">Loading...</span></div>
+  <div class="hero-copy" aria-live="polite" aria-atomic="true"><Transition name="hero-slide" mode="out-in"><div :key="hero.id" class="hero-content"><p class="eyebrow"><span></span> {{hero.demo?'OPEN MOVIE DEMO':'LATEST RELEASES - 7+ RATED'}}</p><h1>{{hero.title}}</h1><div class="meta"><span class="rating">★ {{hero.rating}}</span><span>{{hero.year}}</span><span v-if="hero.runtime">{{hero.runtime}} min</span><span class="quality">{{hero.demo?'OPEN MOVIE':'HD'}}</span></div><p class="summary">{{hero.summary||hero.description_full||'Settle in. Your next great story starts here.'}}</p><p class="tags">{{hero.genres?.join(' · ')}}</p><div class="actions"><button class="primary" @click="open(hero)">▶ Explore movie</button><button class="secondary" @click="toggleSave(hero)">{{savedMovie(hero)?'✓ In my list':'＋ My list'}}</button></div></div></Transition></div><div v-if="featuredMovies.length>1" class="hero-controls"><button class="hero-arrow" aria-label="Previous featured movie" @click="moveHero(-1)">←</button><div class="hero-dots"><button v-for="(movie,i) in featuredMovies" :key="movie.id" :class="{active:i===activeHeroIndex}" :aria-label="`Show featured movie ${i+1}: ${movie.title}`" :aria-current="i===activeHeroIndex?'true':undefined" @click="selectHero(i)"></button></div><button class="hero-arrow" aria-label="Next featured movie" @click="moveHero(1)">→</button><span class="hero-position">{{activeHeroIndex+1}} / {{featuredMovies.length}}</span></div><div class="hero-caption">YOUR SEAT. YOUR SCREEN.<br><strong>Stories worth staying in for.</strong></div>
  </section>
+ <p v-if="bannerNotice" class="banner-notice subtle" role="status">{{bannerNotice}}</p>
  <section class="library"><div class="section-heading"><div><p class="eyebrow">THE GOOD STUFF, ALL IN ONE PLACE</p><h2>{{tab==='My list'?'Your watchlist':tab==='Top rated'?'Audience favorites':'Find your next favorite'}}<span class="count">{{visible.length}}</span></h2></div><span class="subtle">A little escape, whenever you need it.</span></div>
- <form class="filters" @submit.prevent="load()"><label class="search"><span>⌕</span><input v-model="query" placeholder="Search movies…" aria-label="Search movies by title"><button type="submit" aria-label="Search">→</button></label><select v-model="genre" aria-label="Genre" @change="load()"><option value="">All genres</option><option v-for="g in genres" :key="g">{{g}}</option></select><select v-model="rating" aria-label="Minimum rating" @change="load()"><option value="">Any rating</option><option value="7">7+ rated</option><option value="8">8+ rated</option><option value="9">9+ rated</option></select><select v-model="sort" aria-label="Sort movies" @change="load()"><option value="random">Random picks</option><option value="date_added">Recently added</option><option value="year">Latest releases</option><option value="rating">Highest rated</option><option value="download_count">Popular</option></select><button v-if="tab==='Discover'" class="secondary shuffle-button" type="button" :disabled="loading" @click="shuffleDiscover">↻ Shuffle</button></form>
+ <form class="filters" @submit.prevent="load()"><label class="search"><span>⌕</span><input v-model="query" placeholder="Search movies…" aria-label="Search movies by title"><button type="submit" aria-label="Search">→</button></label><select v-model="genre" aria-label="Genre" @change="load()"><option value="">All genres</option><option v-for="g in genres" :key="g">{{g}}</option></select><select v-model="rating" aria-label="Minimum rating" @change="load()"><option value="">Any rating</option><option value="7">7+ rated</option><option value="8">8+ rated</option><option value="9">9+ rated</option></select><select v-model="sort" aria-label="Sort movies" @change="load()"><option value="random">Random picks (7+)</option><option value="date_added">Recently added</option><option value="year">Latest releases</option><option value="rating">Highest rated</option><option value="download_count">Popular</option></select><button v-if="tab==='Discover'" class="secondary shuffle-button" type="button" :disabled="loading" @click="shuffleDiscover">↻ Shuffle</button></form>
  <div v-if="notice" class="notice" role="status">{{notice}} <button @click="load()">Retry catalog</button></div><p v-if="loading" class="subtle" role="status">Loading movies…</p>
  <div class="grid"><article v-for="(movie,index) in visible" :key="movie.id" class="card"><button class="poster" :class="`palette-${index%6}`" @click="open(movie)" :aria-label="`View ${movie.title}`"><img v-if="safeUrl(movie.large_cover_image||movie.medium_cover_image)" :src="safeUrl(movie.large_cover_image||movie.medium_cover_image)" :alt="movie.title" loading="lazy" @error="$event.target.style.display='none'"><span class="poster-art"><span class="film-mark">F</span><strong>{{movie.title}}</strong><small>{{movie.genres?.[0]||'MOVIE'}}</small></span><span class="score">★ {{movie.rating}}</span><span class="play-overlay">▶</span></button><button class="save" @click="toggleSave(movie)" :aria-label="`${savedMovie(movie)?'Remove':'Save'} ${movie.title}`">{{savedMovie(movie)?'✓':'＋'}}</button><button class="movie-title" @click="open(movie)">{{movie.title}}</button><p class="card-meta">{{movie.year}} <span>·</span> {{movie.genres?.[0]||'Movie'}}</p></article></div>
  <div v-if="!visible.length&&!loading" class="empty"><h3>{{tab==='My list'?'Make room for movie night.':'No movies found.'}}</h3><p>{{tab==='My list'?'Save a movie with the + button to find it here.':'Try another title, genre, or rating.'}}</p></div><button v-if="more&&tab!=='My list'" class="secondary load-more" :disabled="loading" @click="page++;load(true)">Load more movies</button>

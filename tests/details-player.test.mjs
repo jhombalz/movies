@@ -6,14 +6,30 @@ import { ref, computed, nextTick } from 'vue'
 import parseTorrent from 'parse-torrent'
 import { streamingBase } from '../src/backend.js'
 import { serverList } from '../src/servers.js'
+import { catalogRequest, recommendedBannerMovie } from '../src/catalog.js'
 
 const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
- const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
- vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source};',context)
+ const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,catalogRequest,recommendedBannerMovie,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
+ vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source,load,loadFeatured,movies,sort,rating,latestMovies,bannerLanguage};',context)
  return {context,...context.api}
 }
+test('recently added is default; random picks enforce 7+ independently of the rating dropdown',async()=>{
+ const page=app({fetch:async url=>{
+  const params=new URL(url).searchParams
+  assert.equal(params.get('minimum_rating'),'7')
+  return{ok:true,json:async()=>({status:'ok',data:{movie_count:2,movies:[{id:1,title:'Low',rating:6},{id:2,title:'High',rating:8}]}})}
+ }})
+ assert.equal(page.sort.value,'date_added');page.sort.value='random';page.rating.value='';await page.load()
+ assert.deepEqual(Array.from(page.movies.value,m=>m.id),[2])
+})
+test('banner feed stays independent of library changes and rejects low-rated or future movies',async()=>{
+ const year=new Date().getFullYear()
+ const page=app({fetch:async()=>({ok:true,json:async()=>({status:'ok',data:{movies:[{id:1,title:'Good',rating:8,year,language:'en'},{id:2,title:'Low',rating:6,year,language:'en'},{id:3,title:'Future',rating:8,year:year+1,language:'en'}]}})})})
+ await page.loadFeatured();assert.deepEqual(Array.from(page.latestMovies.value,m=>m.id),[1])
+ page.movies.value=[];page.sort.value='rating';assert.equal(page.latestMovies.value[0].id,1)
+})
 test('playback falls back to a second server after the primary returns 503',async()=>{
  const attempts=[],id='a'.repeat(48)
  const page=app({servers:['https://frame-movies.onrender.com','https://backup.example'],serverRequest:async(base,path)=>{
@@ -51,7 +67,7 @@ test('direct links retrieve uncached movie details; failed requests remain on th
  const page=app({fetch:async url=>{assert.match(url,/movie_details.json\?movie_id=123/);return{ok:true,json:async()=>({status:'ok',data:{movie:{id:123,title:'Direct link'}}})}}})
  page.context.location.hash='#/movie/123';await page.route();assert.equal(page.selected.value.title,'Direct link')
  const failed=app({fetch:async()=>{throw new Error('Offline')}});failed.context.location.hash='#/movie/999';await failed.route()
- assert.equal(failed.detailRoute.value,true);assert.equal(failed.detailsError.value,'Offline')
+ assert.equal(failed.detailRoute.value,true);assert.match(failed.detailsError.value,/catalog is unavailable/)
 })
 
 test('torrent playback constructs the imported class and navigation destroys it',async()=>{

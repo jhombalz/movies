@@ -1,3 +1,4 @@
+import { catalogRequest } from '../src/catalog.js'
 const escape=value=>String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))
 export function shareMetadata(movie,url){
  const title=escape(movie.title+' | JhoFlix'),description=escape((movie.description_full||movie.summary||'Watch movie details on JhoFlix.').slice(0,300))
@@ -9,10 +10,8 @@ export function createShareLookup(fetcher=fetch){
  return async id=>{
   if(!/^\d{1,10}$/.test(id))return null
   const stored=cache.get(id);if(stored&&stored.expires>Date.now())return stored.movie
-  const response=await fetcher('https://yts.gg/api/v2/movie_details.json?movie_id='+id,{signal:AbortSignal.timeout(12000)})
-  if(!response.ok)throw Error('Unavailable')
-  const data=await response.json();const movie=data.data?.movie
-  if(data.status!=='ok'||String(movie?.id)!==id)return null
+  const data=await catalogRequest('movie_details',{movie_id:id},{fetcher});const movie=data.movie
+  if(String(movie?.id)!==id)return null
   if(cache.size>=200)cache.delete(cache.keys().next().value)
   cache.set(id,{movie,expires:Date.now()+3600000});return movie
  }

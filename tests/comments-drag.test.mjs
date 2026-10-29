@@ -16,7 +16,7 @@ test('saved comments display only for their movie without writing to storage',()
 })
 test('carousel follows horizontal drags, changes movie on release, and cancels vertical gestures',()=>{
  const ctx=vm.createContext({ref,computed,onMounted(){},onUnmounted(){},localStorage:{getItem(){return null},removeItem(){}},location:{},URL})
- vm.runInContext(script('App.vue')+';globalThis.api={startHeroSwipe,updateHeroSwipe,finishHeroSwipe,heroDragging,heroDrag,heroIndex}',ctx)
+ vm.runInContext(script('App.vue')+';latestMovies.value=[{id:1,rating:8},{id:2,rating:8},{id:3,rating:8}];globalThis.api={startHeroSwipe,updateHeroSwipe,finishHeroSwipe,heroDragging,heroDrag,heroIndex}',ctx)
  const api=ctx.api,target={clientWidth:1000,setPointerCapture(){},hasPointerCapture(){return false}}
  const event=(x,y=0)=>({pointerId:1,button:0,target:{closest(){return false}},currentTarget:target,clientX:x,clientY:y})
  api.startHeroSwipe(event(200));api.updateHeroSwipe(event(100));assert.equal(api.heroDragging.value,true);assert.equal(api.heroDrag.value,-100)

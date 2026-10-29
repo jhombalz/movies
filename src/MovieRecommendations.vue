@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { catalogRequest } from './catalog.js'
 const props=defineProps({movie:{type:Object,required:true}})
 const emit=defineEmits(['open'])
 const movies=ref([]), loading=ref(false), error=ref('')
@@ -9,13 +10,11 @@ async function load(){
  request?.abort();request=new AbortController();const current=request
  loading.value=true;error.value='';movies.value=[]
  try{
-  const response=await fetch('https://yts.gg/api/v2/movie_suggestions.json?movie_id='+encodeURIComponent(props.movie.id),{signal:AbortSignal.any([current.signal,AbortSignal.timeout(12000)])})
-  if(!response.ok)throw new Error('Recommendations are unavailable right now.')
-  const result=await response.json()
-  if(result.status!=='ok'||!Array.isArray(result.data?.movies))throw new Error('Recommendations are unavailable right now.')
+  const data=await catalogRequest('movie_suggestions',{movie_id:props.movie.id},{signal:current.signal})
+  if(!Array.isArray(data.movies))throw new Error('Recommendations are unavailable right now.')
   if(current.signal.aborted)return
   const seen=new Set([String(props.movie.id)])
-  movies.value=result.data.movies.filter(movie=>{
+  movies.value=data.movies.filter(movie=>{
    if(!movie||!/^\d+$/.test(String(movie.id))||typeof movie.title!=='string'||seen.has(String(movie.id)))return false
    seen.add(String(movie.id));return true
   }).slice(0,8)

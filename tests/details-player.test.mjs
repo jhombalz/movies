@@ -7,15 +7,28 @@ import parseTorrent from 'parse-torrent'
 import { streamingBase } from '../src/backend.js'
 import { serverList } from '../src/servers.js'
 import { vidsrcEmbedUrl, playerEmbedUrl, embeddedPlayers } from '../src/vidsrc.js'
-import { catalogRequest, recommendedBannerMovie } from '../src/catalog.js'
+import { catalogRequest, recommendedBannerMovie, matchesSavedSearch } from '../src/catalog.js'
 
 const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
- const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,vidsrcEmbedUrl,playerEmbedUrl,embeddedPlayers,catalogRequest,recommendedBannerMovie,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
- vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source,load,loadFeatured,movies,sort,rating,latestMovies,bannerLanguage};',context)
+ const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,vidsrcEmbedUrl,playerEmbedUrl,embeddedPlayers,catalogRequest,recommendedBannerMovie,matchesSavedSearch,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
+ vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source,load,loadFeatured,movies,sort,rating,latestMovies,bannerLanguage,query,visible,searchQuality,saved,tab};',context)
  return {context,...context.api}
 }
+test('catalog matches by alternate English title remain visible with a romanized display title',async()=>{
+ const page=app({fetch:async url=>{
+  const params=new URL(url).searchParams;assert.equal(params.get('query_term'),'war of the arrow');assert.equal(params.get('quality'),'720p')
+  return{ok:true,json:async()=>({status:'ok',data:{movie_count:1,movies:[{id:16359,title:'Choi-jong-byeong-gi hwal',title_english:'Choi-jong-byeong-gi hwal',rating:7.1}]}})}
+ }})
+ page.query.value='  war of the arrow  ';page.searchQuality.value='720p';await page.load()
+ assert.equal(page.visible.value.length,1);assert.equal(page.visible.value[0].id,16359)
+})
+test('saved-list search matches English and original titles and IMDb IDs',()=>{
+ const page=app();page.tab.value='My list';page.saved.value=[{id:42,title:'Original',title_english:'War of the Arrows',imdb_code:'tt1234567'}]
+ for(const term of ['war of the arrow','ORIGINAL','tt1234567']){page.query.value=term;assert.equal(page.visible.value.length,1)}
+ page.query.value='unrelated';assert.equal(page.visible.value.length,0)
+})
 test('recently added is default; random picks enforce 7+ independently of the rating dropdown',async()=>{
  const page=app({fetch:async url=>{
   const params=new URL(url).searchParams

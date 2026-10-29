@@ -4,7 +4,7 @@ import { loadWebTorrent, registerPlayerWorker } from './player.js'
 import { streamingBase, serverRequest, releaseSession } from './backend.js'
 import { API_URL, API_URLS } from './config.js'
 import { serverList, serverHealth } from './servers.js'
-import { catalogRequest, recommendedBannerMovie } from './catalog.js'
+import { catalogRequest, recommendedBannerMovie, matchesSavedSearch } from './catalog.js'
 import MovieRecommendations from './MovieRecommendations.vue'
 import MovieInformation from './MovieInformation.vue'
 import WebtorPlayer from './WebtorPlayer.vue'
@@ -29,6 +29,7 @@ const samples = [
 ]
 const movies=ref(samples), loading=ref(false), notice=ref(''), query=ref(''), genre=ref(''), rating=ref(''), sort=ref('date_added'), tab=ref('Discover'), page=ref(1), more=ref(false), selected=ref(null), quality=ref(0), playing=ref(false), video=ref(null), status=ref(''), source=ref(''), localUrl=ref(''), stats=ref(''), saved=ref([])
 const detailsLoading=ref(false), detailsError=ref(''), detailRoute=ref(false)
+const searchQuality=ref('')
 function highQuality(t){const label=String(t?.quality||'');return /\b(?:[248]k|uhd)\b/i.test(label)||Number(label.match(/(\d{3,4})p/i)?.[1]||0)>720}
 function allowedQuality(t){return /^(720p|1080p)$/i.test(String(t?.quality||'').trim())}
 const qualityOptions=computed(()=>(selected.value?.torrents||[]).map((torrent,index)=>({torrent,index})).filter(({torrent})=>allowedQuality(torrent)))
@@ -76,7 +77,9 @@ const movieCache=new Map()
 const homeUrl=location.pathname?.startsWith('/movie/')?'/':'./'
 try { const data=JSON.parse(localStorage.getItem('frame-watchlist') || '[]'); saved.value=Array.isArray(data)?data:[] } catch {}
 const genres=['Action','Adventure','Animation','Comedy','Crime','Documentary','Drama','Fantasy','Horror','Mystery','Romance','Sci-Fi','Thriller']
-const visible=computed(()=> (tab.value==='My list'?saved.value:movies.value).filter(m=>(!query.value||m.title.toLowerCase().includes(query.value.toLowerCase()))&&(!genre.value||m.genres?.includes(genre.value))&&(!rating.value||m.rating>=Number(rating.value))))
+// Catalog search includes alternate titles that aren't returned as display titles.
+// Trust those API matches; apply local text matching only to the saved list.
+const visible=computed(()=> (tab.value==='My list'?saved.value:movies.value).filter(m=>(tab.value!=='My list'||matchesSavedSearch(m,query.value))&&(!genre.value||m.genres?.includes(genre.value))&&(!rating.value||m.rating>=Number(rating.value))&&(tab.value!=='My list'||!searchQuality.value||m.torrents?.some(t=>t.quality===searchQuality.value))))
 const heroIndex=ref(0), heroDirection=ref(1)
 const randomPages=new Set()
 function shuffled(items){const result=[...items];for(let i=result.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[result[i],result[j]]=[result[j],result[i]]}return result}
@@ -140,7 +143,7 @@ async function load(append=false){
  if(!append){page.value=1;randomPages.clear()}
  try{
   async function fetchPage(number){
-   return catalogRequest('list_movies',{limit:24,page:number,sort_by:sort.value==='random'?'date_added':sort.value,order_by:'desc',query_term:query.value,genre:genre.value,minimum_rating:sort.value==='random'?Math.max(7,Number(rating.value)||0):rating.value||'0'},{signal:current.signal,fetcher:fetch})
+   return catalogRequest('list_movies',{limit:24,page:number,sort_by:sort.value==='random'?'date_added':sort.value,order_by:'desc',query_term:query.value.trim(),quality:searchQuality.value||'all',genre:genre.value,minimum_rating:sort.value==='random'?Math.max(7,Number(rating.value)||0):rating.value||'0'},{signal:current.signal,fetcher:fetch})
   }
   let data=await fetchPage(sort.value==='random'?1:page.value)
   const totalPages=Math.ceil((data.movie_count||0)/24)
@@ -358,7 +361,7 @@ onUnmounted(()=>{dismissShare();healthAbort?.abort();clearTimeout(healthTimer);f
  </section>
  <p v-if="bannerNotice" class="banner-notice subtle" role="status">{{bannerNotice}}</p>
  <section class="library"><div class="section-heading"><div><p class="eyebrow">THE GOOD STUFF, ALL IN ONE PLACE</p><h2>{{tab==='My list'?'Your watchlist':tab==='Top rated'?'Audience favorites':'Find your next favorite'}}<span class="count">{{visible.length}}</span></h2></div><span class="subtle">A little escape, whenever you need it.</span></div>
- <form class="filters" @submit.prevent="load()"><label class="search"><span>⌕</span><input v-model="query" placeholder="Search movies…" aria-label="Search movies by title"><button type="submit" aria-label="Search">→</button></label><select v-model="genre" aria-label="Genre" @change="load()"><option value="">All genres</option><option v-for="g in genres" :key="g">{{g}}</option></select><select v-model="rating" aria-label="Minimum rating" @change="load()"><option value="">Any rating</option><option value="7">7+ rated</option><option value="8">8+ rated</option><option value="9">9+ rated</option></select><select v-model="sort" aria-label="Sort movies" @change="load()"><option value="random">Random picks (7+)</option><option value="date_added">Recently added</option><option value="year">Latest releases</option><option value="rating">Highest rated</option><option value="download_count">Popular</option></select><button v-if="tab==='Discover'" class="secondary shuffle-button" type="button" :disabled="loading" @click="shuffleDiscover">↻ Shuffle</button></form>
+ <form class="filters" @submit.prevent="load()"><label class="search"><span>⌕</span><input v-model="query" placeholder="Search movies…" aria-label="Search by English title, original title, or IMDb ID"><button type="submit" aria-label="Search">→</button></label><select v-model="searchQuality" aria-label="Search quality" @change="load()"><option value="">All qualities</option><option value="720p">720p</option><option value="1080p">1080p</option></select><select v-model="genre" aria-label="Genre" @change="load()"><option value="">All genres</option><option v-for="g in genres" :key="g">{{g}}</option></select><select v-model="rating" aria-label="Minimum rating" @change="load()"><option value="">Any rating</option><option value="7">7+ rated</option><option value="8">8+ rated</option><option value="9">9+ rated</option></select><select v-model="sort" aria-label="Sort movies" @change="load()"><option value="random">Random picks (7+)</option><option value="date_added">Recently added</option><option value="year">Latest releases</option><option value="rating">Highest rated</option><option value="download_count">Popular</option></select><button v-if="tab==='Discover'" class="secondary shuffle-button" type="button" :disabled="loading" @click="shuffleDiscover">↻ Shuffle</button></form>
  <div v-if="notice" class="notice" role="status">{{notice}} <button @click="load()">Retry catalog</button></div><p v-if="loading" class="subtle" role="status">Loading movies…</p>
  <div class="grid"><article v-for="(movie,index) in visible" :key="movie.id" class="card"><button class="poster" :class="`palette-${index%6}`" @click="open(movie)" :aria-label="`View ${movie.title}`"><img v-if="safeUrl(movie.large_cover_image||movie.medium_cover_image)" :src="safeUrl(movie.large_cover_image||movie.medium_cover_image)" :alt="movie.title" loading="lazy" @error="$event.target.style.display='none'"><span class="poster-art"><span class="film-mark">F</span><strong>{{movie.title}}</strong><small>{{movie.genres?.[0]||'MOVIE'}}</small></span><span class="score">★ {{movie.rating}}</span><span class="play-overlay">▶</span></button><button class="save" @click="toggleSave(movie)" :aria-label="`${savedMovie(movie)?'Remove':'Save'} ${movie.title}`">{{savedMovie(movie)?'✓':'＋'}}</button><button class="movie-title" @click="open(movie)">{{movie.title}}</button><p class="card-meta">{{movie.year}} <span>·</span> {{movie.genres?.[0]||'Movie'}}</p></article></div>
  <div v-if="!visible.length&&!loading" class="empty"><h3>{{tab==='My list'?'Make room for movie night.':'No movies found.'}}</h3><p>{{tab==='My list'?'Save a movie with the + button to find it here.':'Try another title, genre, or rating.'}}</p></div><button v-if="more&&tab!=='My list'" class="secondary load-more" :disabled="loading" @click="page++;load(true)">Load more movies</button>

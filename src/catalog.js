@@ -17,3 +17,9 @@ export async function catalogRequest(endpoint,params={}, {signal,fetcher=fetch}=
 export function recommendedBannerMovie(movie,language,year=new Date().getFullYear()){
  return Number(movie.rating)>=7&&Number(movie.year)<=year&&Number(movie.year)>=year-2&&(!language||movie.language===language)
 }
+export function matchesSavedSearch(movie,query){
+ const normalize=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()
+ const term=normalize(query)
+ if(!term)return true
+ return [movie.title,movie.title_english,movie.title_long,movie.original_title,movie.slug,movie.imdb_code,...(Array.isArray(movie.aliases)?movie.aliases:[])].some(title=>normalize(title).includes(term))
+}

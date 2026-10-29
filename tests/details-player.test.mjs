@@ -6,12 +6,13 @@ import { ref, computed, nextTick } from 'vue'
 import parseTorrent from 'parse-torrent'
 import { streamingBase } from '../src/backend.js'
 import { serverList } from '../src/servers.js'
+import { vidsrcEmbedUrl } from '../src/vidsrc.js'
 import { catalogRequest, recommendedBannerMovie } from '../src/catalog.js'
 
 const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
- const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,catalogRequest,recommendedBannerMovie,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
+ const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,vidsrcEmbedUrl,catalogRequest,recommendedBannerMovie,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
  vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source,load,loadFeatured,movies,sort,rating,latestMovies,bannerLanguage};',context)
  return {context,...context.api}
 }
@@ -173,6 +174,27 @@ test('Reload player and quality changes force new Webtor instances',async()=>{
  assert.equal(vm.runInContext('webtorVersion.value',page.context),first+2)
  assert.match(vm.runInContext('webtorSource.value',page.context),/bbbbbbbb/)
  page.close()
+})
+test('player tabs switch between Webtor and VidSrc and unload the previous source',async()=>{
+ const page=app({backendEnabled:false});page.playbackMode.value='webtor'
+ page.open({id:42,title:'Movie',imdb_code:'tt17048514',torrents:[{quality:'720p',hash:'a'.repeat(40)}]})
+ await new Promise(resolve=>setImmediate(resolve))
+ await vm.runInContext("selectPlayer('vidsrc')",page.context)
+ assert.equal(vm.runInContext('webtorSource.value',page.context),'')
+ assert.equal(vm.runInContext('vidsrcSource.value',page.context),'https://vidsrc.mov/embed/movie/tt17048514')
+ const first=vm.runInContext('vidsrcVersion.value',page.context);await page.watch();assert.equal(vm.runInContext('vidsrcVersion.value',page.context),first+1)
+ page.open({id:43,title:'Another movie',imdb_code:'tt0111161',torrents:[]});await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(vm.runInContext('vidsrcSource.value',page.context),'https://vidsrc.mov/embed/movie/tt0111161')
+ page.close();assert.equal(vm.runInContext('vidsrcSource.value',page.context),'')
+ page.open({id:42,title:'Movie',imdb_code:'tt17048514',torrents:[{quality:'720p',hash:'a'.repeat(40)}]});await new Promise(resolve=>setImmediate(resolve))
+ await vm.runInContext("selectPlayer('webtor')",page.context)
+ assert.equal(vm.runInContext('vidsrcSource.value',page.context),'');assert.match(vm.runInContext('webtorSource.value',page.context),/^magnet:/)
+ page.close()
+})
+test('VidSrc requires a valid IMDb ID rather than a catalog movie ID',async()=>{
+ assert.equal(vidsrcEmbedUrl('42'),'');assert.equal(vidsrcEmbedUrl('tt12345/redirect'),'')
+ const page=app({backendEnabled:false});page.open({id:42,title:'No IMDb ID',torrents:[]})
+ await vm.runInContext("selectPlayer('vidsrc')",page.context);assert.match(page.status.value,/no IMDb ID/);page.close()
 })
 
 

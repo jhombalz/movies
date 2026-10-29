@@ -163,6 +163,17 @@ test('Webtor loads on opening movies and stops on navigation without backend req
  assert.match(page.status.value,/Backend streaming is disabled/)
  page.close()
 })
+test('Reload player and quality changes force new Webtor instances',async()=>{
+ const page=app({backendEnabled:false});page.playbackMode.value='webtor'
+ page.open({id:321,title:'Movie',torrents:[{quality:'720p',hash:'a'.repeat(40)},{quality:'1080p',hash:'b'.repeat(40)}]})
+ await new Promise(resolve=>setImmediate(resolve))
+ const first=vm.runInContext('webtorVersion.value',page.context)
+ await page.watch();assert.equal(vm.runInContext('webtorVersion.value',page.context),first+1)
+ vm.runInContext('quality.value=1',page.context);await page.watch(true,false)
+ assert.equal(vm.runInContext('webtorVersion.value',page.context),first+2)
+ assert.match(vm.runInContext('webtorSource.value',page.context),/bbbbbbbb/)
+ page.close()
+})
 
 
 test('quality choices exclude 2160p and prefer 720p, then 1080p',()=>{

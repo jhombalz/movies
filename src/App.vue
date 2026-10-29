@@ -6,6 +6,9 @@ import { API_URL, API_URLS } from './config.js'
 import { serverList, serverHealth } from './servers.js'
 import MovieRecommendations from './MovieRecommendations.vue'
 import MovieInformation from './MovieInformation.vue'
+import WebtorPlayer from './WebtorPlayer.vue'
+const webtorSource=ref('')
+const backendEnabled=false
 const samples = [
  {id:'sintel',title:'Sintel',year:2010,rating:7.4,runtime:15,genres:['Animation','Fantasy'],summary:'A young traveler searches for the dragon she befriended in this beautifully crafted open movie from the Blender Foundation.',background_image:'https://media.xiph.org/sintel/sintel-2048-surround.png',stream:'https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4',demo:true,torrents:[{quality:'Original',url:'https://webtorrent.io/torrents/sintel.torrent'}]},
  {id:'bbb',title:'Big Buck Bunny',year:2008,rating:6.5,runtime:10,genres:['Animation','Comedy'],summary:'A gentle giant finds his peaceful afternoon interrupted by three mischievous woodland creatures. An open movie by the Blender Foundation.',stream:'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',demo:true,torrents:[]},
@@ -13,14 +16,22 @@ const samples = [
 ]
 const movies=ref(samples), loading=ref(false), notice=ref(''), query=ref(''), genre=ref(''), rating=ref(''), sort=ref('random'), tab=ref('Discover'), page=ref(1), more=ref(false), selected=ref(null), quality=ref(0), playing=ref(false), video=ref(null), status=ref(''), source=ref(''), localUrl=ref(''), stats=ref(''), saved=ref([])
 const detailsLoading=ref(false), detailsError=ref(''), detailRoute=ref(false)
-const playbackMode=ref('server'), backendUrl=ref(typeof API_URL==='string'?API_URL:'http://127.0.0.1:3000')
+function highQuality(t){const label=String(t?.quality||'');return /\b(?:[248]k|uhd)\b/i.test(label)||Number(label.match(/(\d{3,4})p/i)?.[1]||0)>720}
+function allowedQuality(t){return /^(720p|1080p)$/i.test(String(t?.quality||'').trim())}
+const qualityOptions=computed(()=>(selected.value?.torrents||[]).map((torrent,index)=>({torrent,index})).filter(({torrent})=>allowedQuality(torrent)))
+function defaultQuality(movie){
+ const torrents=movie.torrents||[]
+ const hd=torrents.findIndex(t=>/^720p$/i.test(String(t.quality).trim()))
+ return hd>=0?hd:torrents.findIndex(allowedQuality)
+}
+const playbackMode=ref('webtor'), backendUrl=ref(typeof API_URL==='string'?API_URL:'http://127.0.0.1:3000')
 const servers=ref(typeof serverList==='function'?serverList(typeof API_URLS!=='undefined'?API_URLS:[backendUrl.value]):[{url:backendUrl.value,label:'Server 1',state:'available'}])
 const checkingServers=ref(false),serverMessage=ref('')
 let healthAbort,healthTimer
 const attemptedServers=new Set()
 let resumePosition=0,resumePlaying=false
 async function checkServers(){
- if(checkingServers.value)return
+ if(!backendEnabled||checkingServers.value)return
  clearTimeout(healthTimer)
  checkingServers.value=true;healthAbort=new AbortController();const current=healthAbort
  await Promise.all(servers.value.map(async server=>{
@@ -139,11 +150,20 @@ async function load(append=false){
 }
 function browse(name){if(detailRoute.value)close();tab.value=name;if(name==='Top rated')sort.value='rating';else sort.value='random';if(name!=='My list')load()}
 function shuffleDiscover(){sort.value='random';load()}
-const shareStatus=ref('')
+const shareStatus=ref(''),shareLink=ref('')
+let snackbarTimer
+function dismissShare(){clearTimeout(snackbarTimer);shareStatus.value='';shareLink.value=''}
 async function shareMovie(){
  if(!/^\d+$/.test(String(selected.value?.id)))return
- const url=streamingBase(backendUrl.value)+'/movie/'+selected.value.id+'?title='+encodeURIComponent(selected.value.title)
- try{await navigator.clipboard.writeText(url);shareStatus.value='Share link copied!'}catch{shareStatus.value=url}
+ dismissShare()
+ const url=new URL(movieRoute(selected.value.id,selected.value.title),location.href).href
+ try{
+  await navigator.clipboard.writeText(url)
+  shareStatus.value='Movie link copied!'
+  snackbarTimer=setTimeout(dismissShare,4500)
+ }catch{
+  shareStatus.value='Copy this link to share the movie:';shareLink.value=url
+ }
 }
 function movieRoute(id,title){return '#/movie/'+encodeURIComponent(id)+(title?'?title='+encodeURIComponent(title):'')}
 function cacheMovie(m){movieCache.set(String(m.id),m);if(m.id!=='local')try{sessionStorage.setItem('frame-movie-'+m.id,JSON.stringify(m))}catch{}}
@@ -153,7 +173,7 @@ function applyMovieInformation({id,movie}){
 }
 function open(m){
  cacheMovie(m)
- if(location.hash===movieRoute(m.id,m.title)){stop();selected.value=m;quality.value=0;return}
+ if(location.hash===movieRoute(m.id,m.title)){stop();selected.value=m;quality.value=defaultQuality(m);if(m.id!=='local'&&playbackMode.value==='webtor')void watch(false,false);return}
  location.hash=movieRoute(m.id,m.title)
  // Update immediately so local-file playback can attach to the new page.
  route()
@@ -161,13 +181,13 @@ function open(m){
 async function route(){
  const match=location.hash.match(/^#\/movie\/([^/?]+)(?:\?.*)?$/)
  if(match&&selected.value&&encodeURIComponent(selected.value.id)===match[1])return
- shareStatus.value='';detailRequest?.abort();stop();quality.value=0;selected.value=null;detailsError.value='';detailsLoading.value=false;detailRoute.value=Boolean(match)
+ dismissShare();detailRequest?.abort();stop();quality.value=0;selected.value=null;detailsError.value='';detailsLoading.value=false;detailRoute.value=Boolean(match)
  if(!match)return
  let id
  try{id=decodeURIComponent(match[1])}catch{detailsError.value='Invalid movie link.';return}
  let movie=movieCache.get(id)||[...movies.value,...saved.value,...samples].find(m=>String(m.id)===id)
  if(!movie&&id!=='local')try{movie=JSON.parse(sessionStorage.getItem('frame-movie-'+id)||'null');if(String(movie?.id)!==id)movie=null}catch{}
- if(movie){selected.value=movie;cacheMovie(movie);window.scrollTo(0,0);await nextTick();document.querySelector('#movie-heading')?.focus();return}
+ if(movie){selected.value=movie;quality.value=defaultQuality(movie);cacheMovie(movie);window.scrollTo(0,0);await nextTick();document.querySelector('#movie-heading')?.focus();if(movie.id!=='local'&&playbackMode.value==='webtor')await watch(false,false);return}
  if(!/^\d+$/.test(id)){detailsError.value=id==='local'?'Choose the local movie file again to play it.':'This movie could not be found.';return}
  detailsLoading.value=true;detailRequest=new AbortController();const current=detailRequest
  try{
@@ -176,11 +196,11 @@ async function route(){
   const result=await response.json()
   if(result.status!=='ok'||!result.data?.movie||String(result.data.movie.id)!==id)throw new Error('This movie could not be found.')
   if(current.signal.aborted)return
-  selected.value=result.data.movie;cacheMovie(selected.value);window.scrollTo(0,0);await nextTick();document.querySelector('#movie-heading')?.focus()
+  selected.value=result.data.movie;quality.value=defaultQuality(selected.value);cacheMovie(selected.value);window.scrollTo(0,0);await nextTick();document.querySelector('#movie-heading')?.focus();if(playbackMode.value==='webtor')await watch(false,false)
  }catch(e){if(!current.signal.aborted)detailsError.value=e.message}
  finally{if(current===detailRequest)detailsLoading.value=false}
 }
-function stop(){session++;clearTimeout(timer);clearTimeout(serverPoll);backendAbort?.abort();if(serverSession){releasePromise=releaseSession(serverSession);serverSession=null}if(video.value){video.value.pause();video.value.removeAttribute('src');video.value.load()}if(client&&!client.destroyed)client.destroy();client=null;playing.value=false;source.value='';stats.value='';if(localUrl.value){URL.revokeObjectURL(localUrl.value);localUrl.value=''}}
+function stop(){webtorSource.value='';session++;clearTimeout(timer);clearTimeout(serverPoll);backendAbort?.abort();if(serverSession){releasePromise=releaseSession(serverSession);serverSession=null}if(video.value){video.value.pause();video.value.removeAttribute('src');video.value.load()}if(client&&!client.destroyed)client.destroy();client=null;playing.value=false;source.value='';stats.value='';if(localUrl.value){URL.revokeObjectURL(localUrl.value);localUrl.value=''}}
 function close(){if(location.pathname?.startsWith('/movie/'))history.replaceState(null,'','/');detailRequest?.abort();stop();selected.value=null;detailRoute.value=false;detailsError.value='';detailsLoading.value=false;location.hash='';window.scrollTo(0,0)}
 const trackers=['wss://tracker.openwebtorrent.com','wss://tracker.webtorrent.dev','wss://tracker.btorrent.xyz']
 function magnet(t,m){const hash=String(t.hash||'').trim();if(!/^(?:[a-f0-9]{40}|[a-z2-7]{32})$/i.test(hash))throw new Error('This movie source has an invalid torrent hash. Try another quality.');const params=new URLSearchParams({dn:m.title});for(const tracker of trackers)params.append('tr',tracker);const metadata=safeUrl(t.url);if(metadata)params.set('xs',metadata);return `magnet:?xt=urn:btih:${hash}&${params}`}
@@ -250,13 +270,21 @@ async function watchOnServer(t,token){
  }
  await poll()
 }
-async function watch(useTorrent=false){
+async function watch(useTorrent=false,scrollToPlayer=true){
  stop();attemptedServers.clear();resumePosition=0;resumePlaying=false;const token=session;playing.value=true;status.value='Preparing playback…';await nextTick()
  if(token!==session||!selected.value)return
  if(selected.value.stream&&!useTorrent){source.value=selected.value.stream;status.value=selected.value.id==='sintel'?'Sintel trailer':'Ready to play';return}
- const t=selected.value.torrents?.[quality.value];if(!t){status.value='No playable source is available for this movie.';return}
+ const t=selected.value.torrents?.[quality.value];if(!t||!allowedQuality(t)){status.value='No 720p or 1080p source is available for this movie.';return}
+ if(playbackMode.value==='server'&&highQuality(t)){status.value='Server playback is limited to 720p or lower. Choose a lower quality.';return}
  try{
-  if(playbackMode.value==='server'){await watchOnServer(t,token);return}
+  if(playbackMode.value==='webtor'){
+   const torrentSource=t.hash?magnet(t,selected.value):safeUrl(t.url)
+   if(!torrentSource)throw new Error('This movie has no valid torrent source. Try another quality.')
+   webtorSource.value=torrentSource;status.value='Stream provided by Webtor. Use the player controls to start playback.'
+   await nextTick();if(token===session&&scrollToPlayer)document.querySelector('.player')?.scrollIntoView({behavior:'smooth',block:'start'})
+   return
+  }
+  if(playbackMode.value==='server'){if(!backendEnabled)throw new Error('Backend streaming is disabled.');await watchOnServer(t,token);return}
   const WebTorrent=await loadWebTorrent()
   if(token!==session)return
   const registration=await registerPlayerWorker()
@@ -283,8 +311,8 @@ async function watch(useTorrent=false){
 function onPlaying(){status.value='Playing';clearTimeout(timer)}
 function videoError(){clearTimeout(serverPoll);backendAbort?.abort();if(serverSession){releasePromise=releaseSession(serverSession);serverSession=null}status.value='Your browser could not play this source. Try another quality or a local MP4 file.'}
 function localFile(event){const file=event.target.files[0];if(!file)return;open({id:'local',title:file.name,genres:[],summary:'A movie from your device',torrents:[]});stop();localUrl.value=URL.createObjectURL(file);source.value=localUrl.value;playing.value=true;status.value='Ready to play';event.target.value=''}
-onMounted(()=>{if(!location.hash&&/^\/movie\/\d+$/.test(location.pathname||''))location.hash='#'+location.pathname;checkServers();loadFeatured();load();route();window.addEventListener('hashchange',route)})
-onUnmounted(()=>{healthAbort?.abort();clearTimeout(healthTimer);featuredRequest?.abort();request?.abort();detailRequest?.abort();stop();window.removeEventListener('hashchange',route)})
+onMounted(()=>{if(!location.hash&&/^\/movie\/\d+$/.test(location.pathname||''))location.hash='#'+location.pathname;loadFeatured();load();route();window.addEventListener('hashchange',route)})
+onUnmounted(()=>{dismissShare();healthAbort?.abort();clearTimeout(healthTimer);featuredRequest?.abort();request?.abort();detailRequest?.abort();stop();window.removeEventListener('hashchange',route)})
 </script>
 
 <template>
@@ -308,6 +336,7 @@ onUnmounted(()=>{healthAbort?.abort();clearTimeout(healthTimer);featuredRequest?
  <p v-if="detailsLoading" class="notice" role="status">Loading movie details…</p>
  <div v-else-if="detailsError" class="notice" role="alert">{{detailsError}} <button @click="route">Try again</button></div>
  <section v-else-if="selected" class="movie-details" aria-labelledby="movie-heading">
- <aside class="detail-poster" v-if="selected.id!=='local'"><img v-if="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :src="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :alt="selected.title" @error="$event.target.style.display='none'"><span>{{selected.title}}</span></aside><div class="detail-content"><p class="eyebrow">{{selected.demo?'OPEN MOVIE COLLECTION':'MOVIE DETAILS'}}</p><h1 id="movie-heading" tabindex="-1">{{selected.title}}</h1><div class="meta"><span v-if="selected.rating" class="rating">★ {{selected.rating}}</span><span>{{selected.year}}</span><span v-if="selected.runtime">{{selected.runtime}} min</span><span>{{selected.genres?.join(' · ')}}</span></div><p class="detail-summary">{{selected.description_full||selected.summary||selected.description_short||'No synopsis available.'}}</p><div v-if="selected.torrents?.length" class="quality-picker"><label for="quality">Quality</label><select id="quality" v-model="quality"><option v-for="(t,i) in selected.torrents" :key="i" :value="i">{{t.quality}} {{t.type}} {{t.size?`· ${t.size}`:''}}</option></select></div><div v-if="selected.torrents?.length" class="server-picker"><label for="stream-server">Streaming server</label><select id="stream-server" :value="backendUrl" @change="changeServer"><option v-for="server in servers" :key="server.url" :value="server.url" :disabled="server.state!=='available'">{{server.label}} ? {{server.state==='available'?'Available':server.state==='checking'?'Checking?':'Unavailable'}}</option></select><button class="secondary" :disabled="checkingServers" @click="checkServers">{{checkingServers?'Checking?':'Refresh servers'}}</button><span class="subtle">Unavailable servers are disabled. Switching servers buffers the movie again.</span></div><div v-if="selected.id!=='local'" class="actions"><button class="primary" @click="watch()">▶ {{selected.id==='sintel'?'Watch trailer':'Watch now'}}</button><button v-if="selected.demo&&selected.torrents?.length" class="secondary" @click="watch(true)">Stream full movie</button><a v-if="safeUrl(selected.torrents?.[quality]?.url)" class="secondary" :href="safeUrl(selected.torrents[quality].url)" target="_blank" rel="noopener noreferrer">↓ Download torrent</a><button v-if="/^\d+$/.test(String(selected.id))" class="secondary" @click="shareMovie">Share movie</button><span v-if="shareStatus" class="subtle" role="status">{{shareStatus}}</span><button class="secondary" @click="toggleSave(selected)">{{savedMovie(selected)?'✓ Saved':'＋ My list'}}</button></div><div v-if="playing" class="player"><video ref="video" :src="source||undefined" controls playsinline @loadedmetadata="restorePosition" @playing="onPlaying" @error="videoError"></video><p role="status">{{status}}</p><small>{{stats}}</small></div><p v-if="selected.torrents?.length" class="playback-note">Playback needs available torrent seeds and a supported video format. Leaving this page stops the stream.</p><MovieRecommendations v-if="/^\d+$/.test(String(selected.id))" :key="'recommendations-'+selected.id" :movie="selected" @open="open" /><MovieInformation v-if="selected.id!=='local'" :key="'tmdb-'+selected.id" :movie="selected" :server="backendUrl" @information="applyMovieInformation" /></div></section>
+ <aside class="detail-poster" v-if="selected.id!=='local'"><img v-if="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :src="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :alt="selected.title" @error="$event.target.style.display='none'"><span>{{selected.title}}</span></aside><div class="detail-content"><p class="eyebrow">{{selected.demo?'OPEN MOVIE COLLECTION':'MOVIE DETAILS'}}</p><h1 id="movie-heading" tabindex="-1">{{selected.title}}</h1><div class="meta"><span v-if="selected.rating" class="rating">★ {{selected.rating}}</span><span>{{selected.year}}</span><span v-if="selected.runtime">{{selected.runtime}} min</span><span>{{selected.genres?.join(' · ')}}</span></div><p class="detail-summary">{{selected.description_full||selected.summary||selected.description_short||'No synopsis available.'}}</p><div v-if="selected.torrents?.length" class="quality-picker"><label for="quality">Quality</label><select id="quality" v-model="quality" @change="watch(true,false)"><option v-if="quality<0" :value="-1" disabled>No 720p or 1080p source available</option><option v-for="{torrent:t,index:i} in qualityOptions" :key="i" :value="i" :disabled="playbackMode==='server'&&highQuality(t)">{{t.quality}} {{t.type}} {{playbackMode==='server'&&highQuality(t)?'(disabled)':''}} {{t.size?`· ${t.size}`:''}}</option></select></div><div v-if="selected.torrents?.length&&playbackMode==='server'" class="server-picker"><label for="stream-server">Streaming server</label><select id="stream-server" :value="backendUrl" @change="changeServer"><option v-for="server in servers" :key="server.url" :value="server.url" :disabled="server.state!=='available'">{{server.label}} ? {{server.state==='available'?'Available':server.state==='checking'?'Checking?':'Unavailable'}}</option></select><button class="secondary" :disabled="checkingServers" @click="checkServers">{{checkingServers?'Checking?':'Refresh servers'}}</button><span class="subtle">Unavailable servers are disabled. Switching servers buffers the movie again.</span></div><div v-if="selected.id!=='local'" class="actions"><button class="primary" @click="watch()">▶ {{selected.id==='sintel'?'Reload trailer':'Reload player'}}</button><button v-if="selected.demo&&selected.torrents?.length" class="secondary" @click="watch(true)">Stream full movie</button><a v-if="safeUrl(selected.torrents?.[quality]?.url)" class="secondary" :href="safeUrl(selected.torrents[quality].url)" target="_blank" rel="noopener noreferrer">↓ Download torrent</a><button v-if="/^\d+$/.test(String(selected.id))" class="secondary" @click="shareMovie">Share movie</button><button class="secondary" @click="toggleSave(selected)">{{savedMovie(selected)?'✓ Saved':'＋ My list'}}</button></div><details v-if="selected.id!=='local'" class="watch-guide" open><summary>How to watch</summary><ol><li>If an ad covers the player, wait for the countdown, then click Close in the top-right corner. Close any ad popups or new tabs and return to this movie page.</li><li>The player loads when you open a movie. Press play inside it if playback does not start automatically.</li><li>Choose a quality to load a different source. Allow time for the stream to buffer.</li><li>If Webtor reports no active seeders, try another quality or movie. Reloading cannot create seeders.</li><li>Use Reload player to retry. Fullscreen, volume, and available subtitles are inside the player.</li></ol><p>Leaving this page stops playback.</p></details><div v-if="playing" class="player"><WebtorPlayer v-if="webtorSource" :key="webtorSource" :source="webtorSource" :title="selected.title" :poster="safeUrl(selected.large_cover_image||selected.medium_cover_image)" :imdb-id="selected.imdb_code" /><video v-else ref="video" :src="source||undefined" controls playsinline @loadedmetadata="restorePosition" @playing="onPlaying" @error="videoError"></video><p role="status">{{status}}</p><small>{{stats}}</small></div><p v-if="selected.torrents?.length" class="playback-note">Playback needs available torrent seeds and a supported video format. Leaving this page stops the stream.</p><MovieRecommendations v-if="/^\d+$/.test(String(selected.id))" :key="'recommendations-'+selected.id" :movie="selected" @open="open" /><MovieInformation v-if="backendEnabled&&selected.id!=='local'" :key="'tmdb-'+selected.id" :movie="selected" :server="backendUrl" @information="applyMovieInformation" /></div></section>
  </main>
+ <Transition name="snackbar"><div v-if="shareStatus" class="share-snackbar" role="status" aria-live="polite"><div><span>{{shareStatus}}</span><input v-if="shareLink" :value="shareLink" readonly aria-label="Movie share link" @focus="$event.target.select()" @click="$event.target.select()"></div><button type="button" aria-label="Dismiss notification" @click="dismissShare">?</button></div></Transition>
 </template>

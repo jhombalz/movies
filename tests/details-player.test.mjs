@@ -11,7 +11,7 @@ const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').m
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
  const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
- vm.runInContext(appScript+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source};',context)
+ vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source};',context)
  return {context,...context.api}
 }
 test('playback falls back to a second server after the primary returns 503',async()=>{
@@ -24,8 +24,15 @@ test('playback falls back to a second server after the primary returns 503',asyn
   }
   return{ready:true}
  }})
- page.playbackMode.value='server';page.open({id:42,title:'Movie',torrents:[{hash:'a'.repeat(40)}]})
+ page.playbackMode.value='server';page.open({id:42,title:'Movie',torrents:[{quality:'720p',hash:'a'.repeat(40)}]})
  await page.watch();assert.deepEqual(attempts,['https://frame-movies.onrender.com','https://backup.example']);assert.equal(page.source.value,`https://backup.example/api/sessions/${id}/video`);page.close()
+})
+test('movie details prefer 720p and block high-quality server playback',async()=>{
+ const page=app({serverRequest:async()=>{throw Error('High quality must not reach the server')}})
+ page.open({id:42,title:'Movie',torrents:[{quality:'1080p',hash:'a'.repeat(40)},{quality:'720p',hash:'b'.repeat(40)}]})
+ assert.equal(vm.runInContext('quality.value',page.context),1)
+ page.playbackMode.value='server';vm.runInContext('quality.value=0',page.context);await page.watch();assert.match(page.status.value,/limited to 720p/);page.close()
+ const onlyHigh=app();onlyHigh.open({id:43,title:'Movie',torrents:[{quality:'2160p'}]});assert.equal(vm.runInContext('quality.value',onlyHigh.context),-1)
 })
 
 test('movie pages have URLs, survive refresh, and support back/forward',async()=>{
@@ -50,7 +57,7 @@ test('direct links retrieve uncached movie details; failed requests remain on th
 test('torrent playback constructs the imported class and navigation destroys it',async()=>{
  let initialized=false,destroyed=false
  class WebTorrent{constructor(){initialized=true}on(){}createServer(){}add(){}destroy(){destroyed=true;this.destroyed=true}}
- const page=app({loadWebTorrent:async()=>WebTorrent});page.open({id:1,title:'Torrent',torrents:[{hash:'0123456789012345678901234567890123456789'}]})
+ const page=app({loadWebTorrent:async()=>WebTorrent});page.open({id:1,title:'Torrent',torrents:[{quality:'720p',hash:'0123456789012345678901234567890123456789'}]})
  await page.watch();assert.equal(initialized,true);assert.equal(page.status.value,'Connecting to movie peers…')
  page.close();assert.equal(destroyed,true);assert.equal(page.playing.value,false)
 })
@@ -58,7 +65,7 @@ test('torrent playback constructs the imported class and navigation destroys it'
 test('leaving while the player loads cancels initialization',async()=>{
  let finish,started,initialized=false
  const loadingStarted=new Promise(resolve=>{started=resolve})
- const page=app({loadWebTorrent:()=>new Promise(resolve=>{finish=resolve;started()})});page.open({id:2,title:'Slow source',torrents:[{hash:'a'.repeat(40)}]})
+ const page=app({loadWebTorrent:()=>new Promise(resolve=>{finish=resolve;started()})});page.open({id:2,title:'Slow source',torrents:[{quality:'720p',hash:'a'.repeat(40)}]})
  const pending=page.watch();await loadingStarted;page.close();finish(class{constructor(){initialized=true}});await pending
  assert.equal(initialized,false)
 })
@@ -112,7 +119,7 @@ test('server player sends hash, uses a session video URL, and releases on naviga
  const id='a'.repeat(48);let released=false
  const page=app({serverRequest:async(base,path,options)=>{assert.equal(base,'https://frame-movies.onrender.com');if(path==='/api/play'){assert.equal(options.key,undefined);assert.equal(options.body.hash,'b'.repeat(40));return{id}}return{ready:true,peers:3,speed:1024,progress:.2}},releaseSession:async session=>{assert.equal(session.id,id);released=true}})
  page.playbackMode.value='server'
- page.open({id:3,title:'Server movie',torrents:[{hash:'b'.repeat(40)}]});await page.watch()
+ page.open({id:3,title:'Server movie',torrents:[{quality:'720p',hash:'b'.repeat(40)}]});await page.watch()
  assert.equal(page.source.value,`https://frame-movies.onrender.com/api/sessions/${id}/video`)
  assert.ok(!page.source.value.includes('private'))
  page.close();assert.equal(released,true)
@@ -120,6 +127,31 @@ test('server player sends hash, uses a session video URL, and releases on naviga
 
 test('server player explains missing settings instead of loading browser WebTorrent',async()=>{
  const page=app({loadWebTorrent:()=>{throw new Error('Browser player must not run')}})
- page.playbackMode.value='server';page.backendUrl.value='';page.open({id:4,title:'No server',torrents:[{hash:'c'.repeat(40)}]});await page.watch()
+ page.playbackMode.value='server';page.backendUrl.value='';page.open({id:4,title:'No server',torrents:[{quality:'720p',hash:'c'.repeat(40)}]});await page.watch()
  assert.match(page.status.value,/streaming server is not configured/);page.close()
+})
+
+
+test('Webtor loads on opening movies and stops on navigation without backend requests',async()=>{
+ const page=app({backendEnabled:false,serverRequest:async()=>{throw Error('Backend must stay disabled')}})
+ page.playbackMode.value='webtor'
+ page.open({id:321,title:'Movie',torrents:[{quality:'1080p',hash:'a'.repeat(40)}]})
+ await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(page.playing.value,true)
+ assert.match(vm.runInContext('webtorSource.value',page.context),/^magnet:/)
+ await vm.runInContext('checkServers()',page.context)
+ page.close()
+ assert.equal(vm.runInContext('webtorSource.value',page.context),'')
+ page.open({id:322,title:'Movie',torrents:[{quality:'720p',hash:'b'.repeat(40)}]})
+ page.playbackMode.value='server';await page.watch()
+ assert.match(page.status.value,/Backend streaming is disabled/)
+ page.close()
+})
+
+
+test('quality choices exclude 2160p and prefer 720p, then 1080p',()=>{
+ const page=app()
+ assert.equal(vm.runInContext("defaultQuality({torrents:[{quality:'2160p'},{quality:'1080p'},{quality:'720p'}]})",page.context),2)
+ assert.equal(vm.runInContext("defaultQuality({torrents:[{quality:'2160p'},{quality:'1080p'}]})",page.context),1)
+ assert.equal(vm.runInContext("defaultQuality({torrents:[{quality:'2160p'}]})",page.context),-1)
 })

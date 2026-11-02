@@ -7,12 +7,12 @@ import parseTorrent from 'parse-torrent'
 import { streamingBase } from '../src/backend.js'
 import { serverList } from '../src/servers.js'
 import { vidsrcEmbedUrl, playerEmbedUrl, embeddedPlayers } from '../src/vidsrc.js'
-import { catalogRequest, recommendedBannerMovie, matchesSavedSearch } from '../src/catalog.js'
+import { catalogRequest, searchCatalog, recommendedBannerMovie, matchesSavedSearch } from '../src/catalog.js'
 
 const appScript=readFileSync(new URL('../src/App.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function storage(){const data=new Map();return{getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,value)}}
 function app(options={}){
- const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,vidsrcEmbedUrl,playerEmbedUrl,embeddedPlayers,catalogRequest,recommendedBannerMovie,matchesSavedSearch,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
+ const context=vm.createContext({ref,computed,nextTick,API_URL:'https://frame-movies.onrender.com',API_URLS:options.servers||['https://frame-movies.onrender.com'],serverList,vidsrcEmbedUrl,playerEmbedUrl,embeddedPlayers,catalogRequest,searchCatalog,recommendedBannerMovie,matchesSavedSearch,onMounted(){},onUnmounted(){},localStorage:storage(),sessionStorage:options.sessionStorage||storage(),location:{hash:''},window:{scrollTo(){}},document:{querySelector(){return null}},URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch:options.fetch||(()=>{throw new Error('Unexpected network request')}),loadWebTorrent:options.loadWebTorrent,registerPlayerWorker:async()=>({active:{state:'activated'}}),streamingBase,serverRequest:options.serverRequest,releaseSession:options.releaseSession||(()=>Promise.resolve())})
  vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source,load,loadFeatured,movies,sort,rating,latestMovies,bannerLanguage,query,visible,searchQuality,saved,tab};',context)
  return {context,...context.api}
 }

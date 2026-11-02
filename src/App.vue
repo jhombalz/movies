@@ -4,7 +4,7 @@ import { loadWebTorrent, registerPlayerWorker } from './player.js'
 import { streamingBase, serverRequest, releaseSession } from './backend.js'
 import { API_URL, API_URLS } from './config.js'
 import { serverList, serverHealth } from './servers.js'
-import { catalogRequest, recommendedBannerMovie, matchesSavedSearch } from './catalog.js'
+import { catalogRequest, searchCatalog, recommendedBannerMovie, matchesSavedSearch } from './catalog.js'
 import MovieRecommendations from './MovieRecommendations.vue'
 import MovieInformation from './MovieInformation.vue'
 import WebtorPlayer from './WebtorPlayer.vue'
@@ -143,7 +143,7 @@ async function load(append=false){
  if(!append){page.value=1;randomPages.clear()}
  try{
   async function fetchPage(number){
-   return catalogRequest('list_movies',{limit:24,page:number,sort_by:sort.value==='random'?'date_added':sort.value,order_by:'desc',query_term:query.value.trim(),quality:searchQuality.value||'all',genre:genre.value,minimum_rating:sort.value==='random'?Math.max(7,Number(rating.value)||0):rating.value||'0'},{signal:current.signal,fetcher:fetch})
+   return searchCatalog({limit:24,page:number,sort_by:sort.value==='random'?'date_added':sort.value,order_by:'desc',query_term:query.value.trim(),quality:searchQuality.value||'all',genre:genre.value,minimum_rating:sort.value==='random'?Math.max(7,Number(rating.value)||0):rating.value||'0'},{signal:current.signal,fetcher:fetch})
   }
   let data=await fetchPage(sort.value==='random'?1:page.value)
   const totalPages=Math.ceil((data.movie_count||0)/24)

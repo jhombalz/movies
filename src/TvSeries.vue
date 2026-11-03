@@ -5,7 +5,7 @@ import { embeddedPlayers, playerEmbedUrl } from './vidsrc.js'
 import { seriesCatalog, seriesDetails, seriesImage, episodeReleased, seriesRoute } from './series.js'
 const titles=ref([]),query=ref(''),loading=ref(false),error=ref(''),more=ref(false),offset=ref(0)
 const selected=ref(null),detailsLoading=ref(false),detailsError=ref(''),detailId=ref('')
-const season=ref(1),episode=ref(1),provider=ref('vidsrc'),version=ref(0),shareStatus=ref(''),shareLink=ref('')
+const season=ref(1),episode=ref(1),provider=ref('vidlink'),version=ref(0),shareStatus=ref(''),shareLink=ref('')
 let catalogAbort,detailsAbort,routeVersion=0
 const seasons=computed(()=>[...new Set(selected.value?.episodes.map(e=>e.season)||[])].sort((a,b)=>(a===0?1:b===0?-1:a-b)))
 const episodes=computed(()=>selected.value?.episodes.filter(e=>e.season===Number(season.value))||[])
@@ -46,7 +46,7 @@ async function route(){
  try{
   const info=await seriesDetails(match[1],{signal:current.signal})
   if(current.signal.aborted||token!==routeVersion)return
-  selected.value=info;applyEpisodeRoute();await nextTick();document.querySelector('#series-heading')?.focus()
+  selected.value=info;if(provider.value==='vidlink'&&!info.tmdb_id)provider.value='vidsrc';applyEpisodeRoute();await nextTick();document.querySelector('#series-heading')?.focus()
  }catch(e){if(!current.signal.aborted)detailsError.value=e.message}
  finally{if(token===routeVersion)detailsLoading.value=false}
 }
@@ -95,7 +95,7 @@ onUnmounted(()=>{routeVersion++;catalogAbort?.abort();detailsAbort?.abort();wind
      <div class="player-tabs" role="group" aria-label="TV playback provider"><button v-for="p in embeddedPlayers" :key="p.id" :class="{active:provider===p.id}" :aria-pressed="provider===p.id" :disabled="p.id==='vidlink'&&!selected.tmdb_id" @click="provider=p.id">Player {{p.number}} <span>{{p.name}}</span></button></div>
      <p class="player-ad-warning" role="note">These third-party players contain ads and may open popups or new tabs. Close unwanted tabs and return here. Stream availability depends on the provider.</p>
      <template v-if="currentEpisode"><h2 class="episode-title">S{{season}} E{{episode}} · {{currentEpisode.name}}</h2><details v-if="currentEpisode.description" class="watch-guide"><summary>Episode synopsis (may contain spoilers)</summary><p>{{currentEpisode.description}}</p></details></template>
-     <div class="actions"><button class="primary" :disabled="!url" @click="version++">Reload episode</button><button class="secondary" :disabled="!hasNext" @click="nextEpisode">Next episode →</button><button class="secondary" v-if="currentEpisode" @click="share">Share episode</button></div>
+     <div class="actions episode-actions"><button class="primary" :disabled="!url" @click="version++">Reload episode</button><button class="secondary" :disabled="!hasNext" @click="nextEpisode">Next episode →</button><button class="secondary" v-if="currentEpisode" @click="share">Share episode</button></div>
      <p v-if="shareStatus" class="subtle" role="status">{{shareStatus}}</p><input v-if="shareLink" class="tv-share-link" :value="shareLink" readonly aria-label="Episode share link" @focus="$event.target.select()">
      <div v-if="url" class="player"><VidSrcPlayer :key="url+':'+version" :url="url" :title="selected.name+' - S'+season+' E'+episode" :label="label" /></div>
      <p v-else class="notice">This episode is unavailable or has not aired yet. Choose another episode or player.</p>
@@ -107,4 +107,5 @@ onUnmounted(()=>{routeVersion++;catalogAbort?.abort();detailsAbort?.abort();wind
 </template>
 <style scoped>
 .tv-series{padding:32px 6% 60px}.tv-heading{font-size:38px;letter-spacing:-1px;margin:0}.episode-selectors{display:flex;gap:16px;flex-wrap:wrap;margin:24px 0}.episode-selectors label{display:grid;gap:8px;font-size:12px;color:#aeb3bf}.episode-selectors label:last-child{flex:1;min-width:180px}.episode-selectors select{min-width:120px;width:100%}.episode-title{font-size:22px;margin:20px 0}.tv-credit{margin-top:24px;line-height:1.7}.tv-share-link{width:100%;padding:12px;background:#1b1d22;color:#eee;border:1px solid #303239;border-radius:7px}.detail-poster img{width:100%}@media(max-width:700px){.tv-series{padding-top:24px}.tv-heading{font-size:30px}.tv-series .section-heading>.subtle{display:none}}
+.episode-actions{margin-top:24px;gap:12px}.episode-title{margin-top:26px;margin-bottom:22px}
 </style>

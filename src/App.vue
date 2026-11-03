@@ -9,6 +9,7 @@ import MovieRecommendations from './MovieRecommendations.vue'
 import MovieInformation from './MovieInformation.vue'
 import WebtorPlayer from './WebtorPlayer.vue'
 import VidSrcPlayer from './VidSrcPlayer.vue'
+import TvSeries from './TvSeries.vue'
 import { playerEmbedUrl, embeddedPlayers } from './vidsrc.js'
 const webtorSource=ref(''),webtorVersion=ref(0)
 const vidsrcSource=ref(''),vidsrcVersion=ref(0)
@@ -162,7 +163,7 @@ async function load(append=false){
  }catch(e){if(current.signal.aborted)return; if(!append){movies.value=sort.value==='random'?shuffled(samples.filter(m=>m.rating>=7)):samples;more.value=false}notice.value='The movie catalog is unavailable. Explore the open-movie demo collection or play a file from your device.'}
  finally{if(current===request)loading.value=false}
 }
-function browse(name){if(detailRoute.value)close();tab.value=name;if(name==='Top rated')sort.value='rating';else sort.value='date_added';if(name!=='My list')load()}
+function browse(name){if(detailRoute.value)close();if(name==='TV Series'){stop();tab.value=name;location.hash='#/tv';return}if(location.hash.startsWith('#/tv'))location.hash='';tab.value=name;if(name==='Top rated')sort.value='rating';else sort.value='date_added';if(name!=='My list')load()}
 function shuffleDiscover(){sort.value='random';load()}
 const shareStatus=ref(''),shareLink=ref('')
 let snackbarTimer
@@ -193,6 +194,8 @@ function open(m){
  route()
 }
 async function route(){
+ if(/^#\/tv(?:\/|$)/.test(location.hash)){detailRequest?.abort();stop();selected.value=null;detailRoute.value=false;tab.value='TV Series';return}
+ if(!location.hash&&tab.value==='TV Series')tab.value='Discover'
  const match=location.hash.match(/^#\/movie\/([^/?]+)(?:\?.*)?$/)
  if(match&&selected.value&&encodeURIComponent(selected.value.id)===match[1])return
  dismissShare();detailRequest?.abort();stop();quality.value=0;selected.value=null;detailsError.value='';detailsLoading.value=false;detailRoute.value=Boolean(match)
@@ -352,8 +355,8 @@ onUnmounted(()=>{dismissShare();healthAbort?.abort();clearTimeout(healthTimer);f
 </script>
 
 <template>
- <header><a class="brand" :href="homeUrl" aria-label="JhoFlix home"><span class="brand-icon">▥</span> JhoFlix<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
- <main v-if="!detailRoute">
+ <header><a class="brand" :href="homeUrl" aria-label="JhoFlix home"><span class="brand-icon">▥</span> JhoFlix<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><button v-for="name in ['Discover','TV Series','Top rated','My list']" :key="name" :class="{active:tab===name}" @click="browse(name)">{{name}}</button></nav><label class="local-button">＋ Open a movie<input type="file" accept="video/*" @change="localFile"></label><span class="avatar" title="Your personal cinema">ME</span></header>
+ <main v-if="!detailRoute"><TvSeries v-if="tab==='TV Series'" /><template v-else>
  <section v-if="tab==='Discover'&&!query&&!genre&&!rating" class="hero" :class="{'is-dragging':heroDragging}" role="region" aria-roledescription="carousel" aria-label="Featured movies" tabindex="0" @keydown.left.prevent="moveHero(-1)" @keydown.right.prevent="moveHero(1)" @pointerdown="startHeroSwipe" @pointermove="updateHeroSwipe" @pointerup="finishHeroSwipe" @pointercancel="cancelHeroSwipe" @lostpointercapture="cancelHeroSwipe" @dragstart.prevent :style="{'--hero-direction':heroDirection,'--hero-drag':heroDrag+'px'}">
   <Transition name="hero-art"><div :key="hero.id" class="hero-artwork" :style="{backgroundImage:heroArtwork(hero)?`url('${heroArtwork(hero)}')`:undefined}"></div></Transition>
   <div class="hero-shade"></div><div class="hero-filters"><label for="banner-language">Banner language</label><select id="banner-language" v-model="bannerLanguage" @change="loadFeatured"><option value="">All languages</option><option value="en">English</option><option value="tl">Filipino</option><option value="ko">Korean</option><option value="ja">Japanese</option><option value="fr">French</option><option value="es">Spanish</option><option value="hi">Hindi</option></select><span v-if="bannerLoading" role="status">Loading...</span></div>
@@ -367,7 +370,7 @@ onUnmounted(()=>{dismissShare();healthAbort?.abort();clearTimeout(healthTimer);f
  <div v-if="!visible.length&&!loading" class="empty"><h3>{{tab==='My list'?'Make room for movie night.':'No movies found.'}}</h3><p>{{tab==='My list'?'Save a movie with the + button to find it here.':'Try another title, genre, or rating.'}}</p></div><button v-if="more&&tab!=='My list'" class="secondary load-more" :disabled="loading" @click="page++;load(true)">Load more movies</button>
  </section>
  <section class="personal"><span class="personal-icon">✦</span><div><h3>Movie night, made yours.</h3><p>Save your favorites. Bring your own movies. Press play.</p></div><label class="secondary">Open a local movie<input type="file" accept="video/*" @change="localFile"></label></section>
- </main><footer v-if="!detailRoute"><span class="brand">JhoFlix<span class="brand-dot">.</span></span><span>Your personal cinema · Made for quiet nights in</span></footer>
+ </template></main><footer v-if="!detailRoute"><span class="brand">JhoFlix<span class="brand-dot">.</span></span><span>Your personal cinema · Made for quiet nights in</span></footer>
  <main v-else class="details-page">
  <a class="back-link" href="#" @click.prevent="close">← Back to movies</a>
  <p v-if="detailsLoading" class="notice" role="status">Loading movie details…</p>

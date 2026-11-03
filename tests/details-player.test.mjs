@@ -16,6 +16,14 @@ function app(options={}){
  vm.runInContext(appScript.replace('const backendEnabled=false',`const backendEnabled=${options.backendEnabled??true}`)+'\nplaybackMode.value="webtorrent";globalThis.api={open,route,close,watch,selected,detailRoute,detailsError,playing,status,stop,magnet,playbackMode,backendUrl,source,load,loadFeatured,movies,sort,rating,latestMovies,bannerLanguage,query,visible,searchQuality,saved,tab};',context)
  return {context,...context.api}
 }
+test('TV navigation stops movie playback and keeps series routes separate from movie IDs',async()=>{
+ const page=app();page.playbackMode.value='webtor'
+ page.open({id:42,title:'Movie',torrents:[{quality:'720p',hash:'a'.repeat(40)}]});await new Promise(resolve=>setImmediate(resolve))
+ page.context.location.hash='#/tv/tt0944947?season=1&episode=2';await page.route()
+ assert.equal(page.detailRoute.value,false);assert.equal(page.tab.value,'TV Series');assert.equal(page.playing.value,false);assert.equal(page.selected.value,null)
+ page.context.location.hash='';await page.route();assert.equal(page.tab.value,'Discover')
+ page.context.location.hash='#/movie/42';await page.route();assert.equal(page.selected.value.id,42);page.close()
+})
 test('catalog matches by alternate English title remain visible with a romanized display title',async()=>{
  const page=app({fetch:async url=>{
   const params=new URL(url).searchParams;assert.equal(params.get('query_term'),'war of the arrow');assert.equal(params.get('quality'),'720p')

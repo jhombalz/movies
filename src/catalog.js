@@ -15,7 +15,9 @@ export async function catalogRequest(endpoint,params={}, {signal,fetcher=fetch}=
  throw Error('The movie catalog is unavailable. Please try again shortly.')
 }
 export function recommendedBannerMovie(movie,language,year=new Date().getFullYear()){
- return Number(movie.rating)>=7&&Number(movie.year)<=year&&Number(movie.year)>=year-2&&(!language||movie.language===language)
+ const genres=(movie.genres||[]).map(g=>String(g).toLowerCase())
+ const feature=!genres.some(g=>['documentary','short','game-show','talk-show','reality-tv','news','sport'].includes(g))&&(!Number(movie.runtime)||Number(movie.runtime)>=60)
+ return feature&&Number(movie.rating)>=7&&Number(movie.year)<=year&&Number(movie.year)>=year-2&&(!language||movie.language===language)
 }
 export function matchesSavedSearch(movie,query){
  const normalize=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()

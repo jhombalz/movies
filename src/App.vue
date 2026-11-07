@@ -5,6 +5,7 @@ import { streamingBase, serverRequest, releaseSession } from './backend.js'
 import { API_URL, API_URLS } from './config.js'
 import { serverList, serverHealth } from './servers.js'
 import { catalogRequest, searchCatalog, recommendedBannerMovie, matchesSavedSearch } from './catalog.js'
+import { randomBanner } from './banner.js'
 import MovieRecommendations from './MovieRecommendations.vue'
 import MovieInformation from './MovieInformation.vue'
 import WebtorPlayer from './WebtorPlayer.vue'
@@ -93,13 +94,14 @@ async function loadFeatured(){
  bannerLoading.value=true;bannerNotice.value='';latestMovies.value=[];heroIndex.value=0
  try{
   const picks=[];const year=new Date().getFullYear()
-  for(let page=1;page<=6&&picks.length<10;page++){
+  for(let page=1;page<=6&&picks.length<80;page++){
    const data=await catalogRequest('list_movies',{limit:50,page,minimum_rating:7,sort_by:'year',order_by:'desc'},{signal:current.signal,fetcher:fetch})
    const list=data.movies||[]
    for(const movie of list)if(recommendedBannerMovie(movie,bannerLanguage.value,year)&&!picks.some(p=>p.id===movie.id))picks.push(movie)
    if(!list.length||list.every(movie=>Number(movie.year)<year-2))break
   }
-  if(!current.signal.aborted){latestMovies.value=picks.slice(0,10);heroIndex.value=0;if(!picks.length)bannerNotice.value='No recent 7+ movies found for this language. Showing an open-movie demo.'}
+  const featured=await randomBanner(picks,{signal:current.signal,fetcher:fetch})
+  if(!current.signal.aborted){latestMovies.value=featured;heroIndex.value=0;if(!picks.length)bannerNotice.value='No recent 7+ movies found for this language. Showing an open-movie demo.'}
  }catch{if(!current.signal.aborted)bannerNotice.value='Featured movies are unavailable. Showing an open-movie demo.'}
  finally{if(current===featuredRequest)bannerLoading.value=false}
 }

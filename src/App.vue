@@ -40,7 +40,7 @@ function defaultQuality(movie){
  const hd=torrents.findIndex(t=>/^720p$/i.test(String(t.quality).trim()))
  return hd>=0?hd:torrents.findIndex(allowedQuality)
 }
-const playbackMode=ref('webtor'), backendUrl=ref(typeof API_URL==='string'?API_URL:'http://127.0.0.1:3000')
+const playbackMode=ref('vidlink'), backendUrl=ref(typeof API_URL==='string'?API_URL:'http://127.0.0.1:3000')
 const servers=ref(typeof serverList==='function'?serverList(typeof API_URLS!=='undefined'?API_URLS:[backendUrl.value]):[{url:backendUrl.value,label:'Server 1',state:'available'}])
 const checkingServers=ref(false),serverMessage=ref('')
 let healthAbort,healthTimer

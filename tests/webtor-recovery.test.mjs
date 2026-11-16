@@ -2,23 +2,25 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
-import { ref, nextTick } from 'vue'
-const script=readFileSync(new URL('../src/WebtorPlayer.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
-function player(options={}){
- const embeds=[];let cleanup
- const ctx=vm.createContext({ref,nextTick,playerId:0,defineProps:()=>({source:'magnet:?xt=urn:btih:'+'a'.repeat(40),title:'Movie'}),onMounted(){},onBeforeUnmount(fn){cleanup=fn},loadSdk:options.loadSdk||(()=>Promise.resolve()),window:{webtor:{push:config=>embeds.push(config)}},document:{getElementById:()=>({replaceChildren(){}})},navigator:{clipboard:{writeText:async()=>{throw Error('Clipboard unavailable')}}}})
- vm.runInContext(script+';globalThis.api={startPlayer}',ctx)
- return{...ctx.api,embeds,cleanup:()=>cleanup()}
+import { computed } from 'vue'
+const component=readFileSync(new URL('../src/WebtorPlayer.vue',import.meta.url),'utf8')
+const script=component.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
+function link(source){
+ const props={source};const ctx=vm.createContext({computed,defineProps:()=>props})
+ vm.runInContext(script+';globalThis.url=webtorUrl',ctx)
+ return {props,url:ctx.url}
 }
-test('retry creates a fresh Webtor embed rather than reusing the failed frame',async()=>{
- const page=player();await page.startPlayer();await page.startPlayer()
- assert.equal(page.embeds.length,2);assert.notEqual(page.embeds[0].id,page.embeds[1].id)
- assert.equal(page.embeds[0].baseUrl,'https://webtor.io')
+test('Webtor link follows the selected torrent and points to its external page',()=>{
+ const page=link('magnet:?xt=urn:btih:'+'a'.repeat(40)+'&dn=Movie')
+ assert.equal(page.url.value,'https://webtor.io/'+'a'.repeat(40))
+ page.props.source='magnet:?xt=urn:btih:'+'b'.repeat(40)
+ // A fresh component is mounted by the parent after quality changes.
+ assert.equal(link(page.props.source).url.value,'https://webtor.io/'+'b'.repeat(40))
+ assert.match(component,/target="_blank" rel="noopener noreferrer"/)
+ assert.match(component,/<strong>Stream<\/strong>/)
+ assert.doesNotMatch(component,/<iframe|loadSdk|window.webtor/)
 })
-test('leaving while Webtor SDK loads prevents a late embed from mounting',async()=>{
- let resolveSdk,started
- const loading=new Promise(resolve=>{started=resolve})
- const page=player({loadSdk:()=>new Promise(resolve=>{resolveSdk=resolve;started()})})
- const pending=page.startPlayer();await loading;page.cleanup();resolveSdk();await pending
- assert.equal(page.embeds.length,0)
+test('Webtor rejects malformed identifiers and offers manual entry for torrent URLs',()=>{
+ for(const source of ['magnet:?xt=urn:btih:invalid','magnet:?xt=urn:btih:'+'a'.repeat(40)+'/bad','https://example.com/movie.torrent'])assert.equal(link(source).url.value,'')
+ assert.match(component,/textarea readonly/)
 })

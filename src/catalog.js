@@ -1,14 +1,28 @@
 // Shared by the browser catalog and server-side share previews.
-const bases=['https://movies-api.accel.li/api/v2/','https://yts.gg/api/v2/']
+const bases=['https://yts.pw/api/v2/','https://movies-api.accel.li/api/v2/']
+const cacheTtl=10*60*1000,cacheLimit=100
+// Keep separate caches for each transport, including injected test fetchers.
+const caches=new WeakMap()
 export async function catalogRequest(endpoint,params={}, {signal,fetcher=fetch}={}){
  if(!['list_movies','movie_details','movie_suggestions'].includes(endpoint))throw Error('Invalid catalog endpoint')
+ if(signal?.aborted)throw signal.reason||new Error('Cancelled')
+ const query=new URLSearchParams(params);query.sort()
+ const key=endpoint+'.json?'+query
+ let cache=caches.get(fetcher)
+ if(!cache){cache=new Map();caches.set(fetcher,cache)}
+ for(const [key,entry] of cache)if(entry.expires<=Date.now())cache.delete(key)
+ const cached=cache.get(key)
+ if(cached)return structuredClone(cached.data)
  for(const base of bases){
   if(signal?.aborted)throw signal.reason||new Error('Cancelled')
   try{
-   const response=await fetcher(base+endpoint+'.json?'+new URLSearchParams(params),{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(8000)]):AbortSignal.timeout(8000)})
+   const response=await fetcher(base+key,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(8000)]):AbortSignal.timeout(8000)})
    if(!response.ok)throw Error('Catalog unavailable')
    const result=await response.json()
    if(result.status!=='ok'||!result.data||typeof result.data!=='object')throw Error('Invalid catalog response')
+   if(signal?.aborted)throw signal.reason||new Error('Cancelled')
+   cache.set(key,{data:structuredClone(result.data),expires:Date.now()+cacheTtl})
+   if(cache.size>cacheLimit)cache.delete(cache.keys().next().value)
    return result.data
   }catch(e){if(signal?.aborted)throw e}
  }

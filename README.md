@@ -26,7 +26,7 @@ In the repository's Settings > Pages, set the publishing Source to GitHub Action
 
 ## Sources and limitations
 
-The catalog uses the API specified in docs.md: `https://yts.gg/api/v2/list_movies.json`. Availability and browser CORS permission depend on that service. When unavailable, the app explicitly shows three open-movie demo entries. Sintel's default video is a trailer; the full movie can be streamed through its demo torrent. No API key is required. The source document remains unchanged.
+The catalog uses `https://yts.pw/api/v2/` with `https://movies-api.accel.li/api/v2/` as a fallback. Successful movie lists, details, and suggestions are cached in memory for 10 minutes (up to 100 requests per running browser page or server process). Cache keys include all filters and page parameters; failed responses are not cached. Availability and browser CORS permission depend on that service. When unavailable, the app explicitly shows three open-movie demo entries. Sintel's default video is a trailer; the full movie can be streamed through its demo torrent. No API key is required. The source document remains unchanged.
 
 Browser WebTorrent needs WebRTC peers and browser-supported codecs. Ordinary desktop torrent seeds alone cannot provide browser playback. Downloads open the provider's torrent URL for use in a desktop client. Torrent playback shares downloaded pieces until you leave the movie page. The installed browser bundle is loaded through its ES module default export. Playback depends on source availability; the app reports errors and missing peers instead of claiming every catalog movie is playable.
 
